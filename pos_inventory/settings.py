@@ -8,10 +8,15 @@ import os
 from pathlib import Path
 from datetime import timedelta
 import dj_database_url
+import environ
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Initialize environment variables
+env = environ.Env()
+environ.Env.read_env()
 
 
 # Quick-start development settings - unsuitable for production
@@ -138,11 +143,21 @@ WSGI_APPLICATION = 'pos_inventory.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': env.db(
+        'DATABASE_URL',
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+    )
 }
+
+# Basic database optimization
+DATABASES['default']['CONN_MAX_AGE'] = 600  # 10 minutes connection persistence
+
+# PostgreSQL-specific optimizations
+if 'postgresql' in DATABASES['default']['ENGINE']:
+    DATABASES['default']['OPTIONS'] = {
+        'connect_timeout': 10,
+        'sslmode': 'require' if not DEBUG else 'prefer',
+    }
 
 
 # Password validation
