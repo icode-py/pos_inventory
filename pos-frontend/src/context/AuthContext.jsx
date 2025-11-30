@@ -40,13 +40,13 @@ const AuthProvider = ({ children }) => {
     localStorage.removeItem("authTokens");
   };
 
-  // ⏱ Refresh token every 4.5 minutes
+  // ⏱ Refresh token every 15 minutes
   useEffect(() => {
     const interval = setInterval(() => {
       if (authTokens) {
         refreshToken();
       }
-    }, 4.5 * 60 * 1000); // 4.5 minutes
+    }, 15 * 60 * 1000); // 15 minutes
     return () => clearInterval(interval);
   }, [authTokens]);
 

@@ -1,7 +1,7 @@
 // src/components/AddProductModal.jsx
 import {
     Dialog, DialogTitle, DialogContent, DialogActions,
-    TextField, Button, MenuItem, Grid
+    TextField, Button, MenuItem, Grid, Checkbox, FormControlLabel
   } from "@mui/material";
   import { useState, useEffect } from "react";
   import axiosInstance from "../utils/axiosInstance";
@@ -9,7 +9,11 @@ import {
   const AddProductModal = ({ open, onClose, onSuccess, onError }) => {
     const [categories, setCategories] = useState([]);
     const [formData, setFormData] = useState({
-      name: "", category_id: "", price: "", cost_price: "", stock: "", barcode: ""
+      name: "", category_id: "", price: "", cost_price: "", stock: "", barcode: "",
+      is_bulk_product: false, // ADDED: Bulk product fields
+      bulk_quantity: 1,
+      bulk_price: "",
+      unit_of_measure: "units"
     });
   
     useEffect(() => {
@@ -27,7 +31,10 @@ import {
         .then(() => {
           onSuccess?.();
           onClose();
-          setFormData({ name: "", category_id: "", price: "", cost_price: "", stock: "", barcode: "" });
+          setFormData({ 
+            name: "", category_id: "", price: "", cost_price: "", stock: "", barcode: "",
+            is_bulk_product: false, bulk_quantity: 1, bulk_price: "", unit_of_measure: "units"
+          });
         })
         .catch(err => {
           console.error("Add failed:", err);
@@ -51,6 +58,55 @@ import {
               </TextField>
             </Grid>
             <Grid item xs={6}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.is_bulk_product}
+                    onChange={(e) => setFormData(prev => ({ ...prev, is_bulk_product: e.target.checked }))}
+                    name="is_bulk_product"
+                  />
+                }
+                label="Bulk Product"
+              />
+            </Grid>
+            {formData.is_bulk_product && (
+          <>
+            <Grid item xs={6}>
+              <TextField
+                label="Bulk Quantity"
+                name="bulk_quantity"
+                type="number"
+                fullWidth
+                value={formData.bulk_quantity}
+                onChange={handleChange}
+                helperText="Units per bulk pack"
+              />
+            </Grid>
+            <Grid item xs={6}>
+            <TextField
+              label="Bulk Price"
+              name="bulk_price"
+              type="number"
+              fullWidth
+              value={formData.bulk_price}
+              onChange={handleChange}
+              helperText="Price for entire bulk pack"
+            />
+            </Grid>
+            <Grid item xs={6}>
+                  <TextField
+                    label="Unit of Measure"
+                    name="unit_of_measure"
+                    fullWidth
+                    value={formData.unit_of_measure}
+                    onChange={handleChange}
+                    helperText="e.g., pieces, kg, packs"
+                  />
+                </Grid>
+              </>
+            )}
+
+            <Grid item xs={6}>
               <TextField label="Price" name="price" type="number" fullWidth value={formData.price} onChange={handleChange} />
             </Grid>
             <Grid item xs={6}>
@@ -73,4 +129,3 @@ import {
   };
   
   export default AddProductModal;
-  
