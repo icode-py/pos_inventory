@@ -70,6 +70,16 @@ class Staff(AbstractUser):
 
     def __str__(self):
         return self.username
+    
+    def get_role_display(self):
+        if self.is_admin:
+            return "Admin"
+        elif self.is_manager:
+            return "Manager" 
+        elif self.is_cashier:
+            return "Cashier"
+        else:
+            return "Staff"
 
 
 class Restock(models.Model):

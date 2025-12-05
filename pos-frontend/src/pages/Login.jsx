@@ -28,6 +28,7 @@ import {
   ManageAccounts as ManagerIcon,
   PointOfSale as CashierIcon
 } from "@mui/icons-material";
+import StaffRegistrationModal from '../components/StaffRegistrationModal';
 
 function Login() {
   const { loginUser } = useContext(AuthContext);
@@ -36,6 +37,7 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -57,53 +59,6 @@ function Login() {
   const handleClickShowPassword = () => {
     setShowPassword(!showPassword);
   };
-
-  const handleDemoLogin = (role) => {
-    const demoCredentials = {
-      cashier: { username: "cashier", password: "cashier123" },
-      manager: { username: "manager", password: "manager123" },
-      admin: { username: "admin", password: "admin123" }
-    };
-    
-    setUsername(demoCredentials[role].username);
-    setPassword(demoCredentials[role].password);
-  };
-
-  const DemoLoginCard = ({ role, icon, title, description }) => (
-    <Card 
-      sx={{ 
-        cursor: 'pointer',
-        transition: 'all 0.3s ease',
-        '&:hover': {
-          transform: 'translateY(-4px)',
-          boxShadow: 4,
-          borderColor: 'primary.main'
-        }
-      }}
-      variant="outlined"
-      onClick={() => handleDemoLogin(role)}
-    >
-      <CardContent sx={{ textAlign: 'center', p: 3 }}>
-        <Box sx={{ color: 'primary.main', mb: 2 }}>
-          {icon}
-        </Box>
-        <Typography variant="h6" gutterBottom fontWeight="bold">
-          {title}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {description}
-        </Typography>
-        <Button 
-          variant="outlined" 
-          size="small" 
-          sx={{ mt: 2 }}
-          fullWidth
-        >
-          Use {title} Demo
-        </Button>
-      </CardContent>
-    </Card>
-  );
 
   return (
     <Box
@@ -330,7 +285,7 @@ function Login() {
                     disabled={loading}
                     sx={{
                       mt: 1,
-                      mb: 3,
+                      mb: 2,
                       py: 1.5,
                       borderRadius: 2,
                       fontSize: "1.1rem",
@@ -352,43 +307,27 @@ function Login() {
                       "Sign In"
                     )}
                   </Button>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    onClick={() => setStaffModalOpen(true)}
+                    sx={{
+                      py: 1.5,
+                      borderRadius: 2,
+                      fontSize: "1rem",
+                      borderColor: 'primary.main',
+                      color: 'primary.main',
+                      '&:hover': {
+                        borderColor: 'primary.dark',
+                        backgroundColor: 'primary.light',
+                        color: 'primary.dark'
+                      }
+                    }}
+                    startIcon={<PersonIcon />}
+                  >
+                    Sign Up
+                  </Button>
                 </Box>
-
-                {/* Demo Login Section */}
-                {/* <Box sx={{ mb: 3 }}>
-                  <Divider sx={{ mb: 3 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Quick Demo Access
-                    </Typography>
-                  </Divider>
-                  
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={4}>
-                      <DemoLoginCard
-                        role="admin"
-                        icon={<AdminIcon fontSize="large" />}
-                        title="Admin"
-                        description="Full system access and management"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <DemoLoginCard
-                        role="manager"
-                        icon={<ManagerIcon fontSize="large" />}
-                        title="Manager"
-                        description="Staff and inventory management"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <DemoLoginCard
-                        role="cashier"
-                        icon={<CashierIcon fontSize="large" />}
-                        title="Cashier"
-                        description="Point of sale operations"
-                      />
-                    </Grid>
-                  </Grid>
-                </Box> */}
 
                 {/* Footer */}
                 <Box sx={{ mt: 4, textAlign: "center" }}>
@@ -404,6 +343,13 @@ function Login() {
           </Grid>
         </Grid>
       </Container>
+        <StaffRegistrationModal
+        open={staffModalOpen}
+        onClose={() => setStaffModalOpen(false)}
+        onSuccess={() => {
+          // Success is handled within the modal
+        }}
+      />
     </Box>
   );
 }

@@ -1,6 +1,6 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
-from .views import CategoryViewSet, ProductViewSet, SaleTransactionViewSet, StaffViewSet, ProductListView, restock_product, sales_report, RestockHistoryViewSet,CustomerViewSet, CustomerTransactionViewSet, LoyaltySettingsViewSet, redeem_loyalty_points,store_today_sales, user_today_performance, BulkDiscountViewSet
+from .views import CategoryViewSet, ProductViewSet, SaleTransactionViewSet, StaffViewSet, ProductListView, restock_product, sales_report, RestockHistoryViewSet,CustomerViewSet, CustomerTransactionViewSet, LoyaltySettingsViewSet, redeem_loyalty_points,store_today_sales, user_today_performance, BulkDiscountViewSet,register_staff
 
 router = DefaultRouter()
 router.register(r'categories', CategoryViewSet)
@@ -21,4 +21,5 @@ urlpatterns = [
     path("store-today-sales/", store_today_sales, name="store-today-sales"),  # Add this
     path("user-today-performance/", user_today_performance, name="user-today-performance"),
     path("redeem-points/", redeem_loyalty_points, name="redeem-points"),
+    path('register-staff/', register_staff, name='register-staff'),
 ]

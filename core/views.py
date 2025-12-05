@@ -90,6 +90,38 @@ class RestockHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 @api_view(['POST'])
+@permission_classes([])  # Allow anyone to register
+def register_staff(request):
+    """
+    Open registration - anyone can create an account
+    Default role: staff (no special permissions)
+    """
+    try:
+        serializer = StaffSerializer(data=request.data)
+        if serializer.is_valid():
+            # Create user with default role (staff - no special permissions)
+            from .models import Staff
+            user = Staff.objects.create_user(
+                username=serializer.validated_data['username'],
+                password=request.data.get('password'),
+                is_cashier=False,  # Default: not cashier
+                is_manager=False,  # Default: not manager  
+                is_admin=False,    # Default: not admin
+                is_staff=True,     # Default: regular staff
+                is_active=True     # Default: active
+            )
+            
+            # Return user data without password
+            response_serializer = StaffSerializer(user)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
 @permission_classes([IsAuthenticated, IsCashierOrManager])
 # @throttle_classes([BurstRateThrottle])
 def restock_product(request):
