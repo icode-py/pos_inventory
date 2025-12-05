@@ -266,9 +266,12 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
 
 
 class StaffSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True, min_length=6)
+    confirm_password = serializers.CharField(write_only=True, required=True)
+    role_display = serializers.ReadOnlyField(source='get_role_display')
     class Meta:
         model = Staff
-        fields = ['id', 'username', 'is_cashier', 'is_manager', 'is_admin']
+        fields = ['id', 'username', 'password', 'confirm_password', 'is_cashier', 'is_manager', 'is_admin','role_display']
         extra_kwargs = {
             'username': {'validators': []}  # Disable unique validator for updates
         }
@@ -281,7 +284,27 @@ class StaffSerializer(serializers.ModelSerializer):
         if not re.match('^[a-zA-Z0-9_]+$', value):
             raise serializers.ValidationError("Username can only contain letters, numbers, and underscores")
         
+        # Check if username already exists
+        if Staff.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Username already exists")
+
         return value
+    
+    def validate(self, data):
+        if data.get('password') != data.get('confirm_password'):
+            raise serializers.ValidationError({
+                'confirm_password': 'Passwords do not match'
+            })
+        return data
+    
+    def create(self, validated_data):
+        # Remove confirm_password before creating user
+        validated_data.pop('confirm_password', None)
+        password = validated_data.pop('password')
+        user = Staff.objects.create_user(**validated_data)
+        user.set_password(password)
+        user.save()
+        return user
 
 
 class RestockSerializer(serializers.ModelSerializer):

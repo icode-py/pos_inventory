@@ -8,6 +8,7 @@ import {
 import { useEffect, useState } from "react";
 import axiosInstance from "../utils/axiosInstance";
 import AddProductModal from "../components/AddProductModal";
+import CategoryManagerModal from '../components/CategoryManagerModal';
 import EditProductModal from "../components/EditProductModal";
 import {
   Add as AddIcon,
@@ -35,6 +36,7 @@ function ProductsPage() {
   const [stockFilter, setStockFilter] = useState("all");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewedProduct, setViewedProduct] = useState(null);
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -255,7 +257,16 @@ function ProductsPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={4} sx={{ textAlign: 'right' }}>
+            <Grid item xs={12} md={2} sx={{ textAlign: 'right', display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+              <Button
+                variant="outlined"
+                startIcon={<CategoryIcon />}
+                onClick={() => setCategoryModalOpen(true)}
+              >
+                Manage Categories
+              </Button>
+            </Grid>
+            <Grid item xs={12} md={2} sx={{ textAlign: 'right' }}>
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
@@ -541,6 +552,15 @@ function ProductsPage() {
         }}
         onError={() => showSnackbar("Failed to update product", "error")}
       />
+
+      <CategoryManagerModal
+      open={categoryModalOpen}
+      onClose={() => setCategoryModalOpen(false)}
+      onSuccess={() => {
+        fetchCategories(); // Refresh categories list
+        fetchProducts(); // Refresh products to show updated categories
+      }}
+    />
 
       {/* Snackbar */}
       <Snackbar
