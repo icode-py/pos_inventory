@@ -344,15 +344,21 @@ const Layout = ({ children }) => {
           </IconButton>
 
           {/* Store Logo/Brand */}
-          <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-            <StoreIcon sx={{ color: 'primary.main', mr: 1, fontSize: 28 }} />
-            <Typography variant="h5" component="div" fontWeight="bold" sx={{
-              color: 'primary.main',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              backgroundClip: 'text',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent'
-            }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, minWidth: 0, mr: 1 }}>
+            <StoreIcon sx={{ color: 'primary.main', mr: 1, fontSize: { xs: 22, md: 28 }, flexShrink: 0 }} />
+            <Typography
+              variant="h6"
+              component="div"
+              fontWeight="bold"
+              noWrap
+              sx={{
+                fontSize: { xs: '0.95rem', sm: '1.1rem', md: '1.25rem' },
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                backgroundClip: 'text',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}
+            >
               {store.name}
             </Typography>
           </Box>
@@ -382,18 +388,20 @@ const Layout = ({ children }) => {
           </Box>
 
           {/* Notifications & Profile */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {/* Online Status */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, md: 1 }, flexShrink: 0 }}>
+            {/* Online Status — hidden on mobile */}
             <Chip
               icon={isOnline ? <WifiIcon /> : <WifiOffIcon />}
               label={isOnline ? "Online" : "Offline"}
               size="small"
               color={isOnline ? "success" : "warning"}
               variant="outlined"
+              sx={{ display: { xs: 'none', sm: 'flex' } }}
             />
 
+            {/* Dark mode toggle — hidden on mobile */}
             <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-              <IconButton onClick={toggleColorMode} sx={{ color: 'text.secondary' }}>
+              <IconButton onClick={toggleColorMode} sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'flex' } }}>
                 {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
               </IconButton>
             </Tooltip>
@@ -409,12 +417,12 @@ const Layout = ({ children }) => {
                 </Badge>
               </IconButton>
             </Tooltip>
-            
-            <IconButton 
-              onClick={handleProfileMenuOpen} 
-              sx={{ 
+
+            <IconButton
+              onClick={handleProfileMenuOpen}
+              sx={{
                 color: 'primary.main',
-                '&:hover': { 
+                '&:hover': {
                   background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                   color: 'white',
                   transform: 'scale(1.1)',
