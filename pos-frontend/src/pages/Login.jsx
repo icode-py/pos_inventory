@@ -3,7 +3,7 @@ import axios from "axios";
 import { AuthContext } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
-  Box, Paper, TextField, Button, Typography,
+  Box, TextField, Button, Typography,
   InputAdornment, IconButton, Alert, CircularProgress,
 } from "@mui/material";
 import {
@@ -58,57 +58,65 @@ function Login() {
     <Box
       sx={{
         minHeight: "100vh",
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        width: "100%",
+        backgroundImage: `
+          linear-gradient(135deg, rgba(102,126,234,0.93) 0%, rgba(118,75,162,0.93) 100%),
+          url('https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=1920&q=80')
+        `,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
         display: "flex",
-        alignItems: "center",
+        alignItems: { xs: "flex-start", md: "center" },
         justifyContent: "center",
-        p: 3,
+        p: { xs: 0, md: 3 },
         position: "relative",
         overflow: "hidden",
       }}
     >
-      {/* Decorative circles */}
-      <Box sx={{ position: "absolute", top: -80, right: -80, width: 280, height: 280, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.08)" }} />
-      <Box sx={{ position: "absolute", bottom: -60, left: -60, width: 220, height: 220, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.08)" }} />
-      <Box sx={{ position: "absolute", top: "40%", left: "15%", width: 120, height: 120, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.05)" }} />
+      {/* Subtle decorative blobs — desktop only */}
+      <Box sx={{ display: { xs: 'none', md: 'block' }, position: "absolute", top: -80, right: -80, width: 300, height: 300, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.06)" }} />
+      <Box sx={{ display: { xs: 'none', md: 'block' }, position: "absolute", bottom: -60, left: -60, width: 240, height: 240, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.06)" }} />
 
-      {/* Main card — always side by side */}
+      {/* Main card */}
       <Box
         sx={{
           display: "flex",
+          flexDirection: { xs: "column", md: "row" },
           alignItems: "stretch",
           width: "100%",
-          maxWidth: 1050,
-          minHeight: 560,
-          borderRadius: 4,
+          maxWidth: { xs: "100%", md: 1060 },
+          minHeight: { xs: "100vh", md: 580 },
+          borderRadius: { xs: 0, md: 4 },
           overflow: "hidden",
-          boxShadow: "0 25px 60px rgba(0,0,0,0.35)",
+          boxShadow: { xs: "none", md: "0 30px 70px rgba(0,0,0,0.4)" },
           position: "relative",
           zIndex: 1,
         }}
       >
-        {/* ── Left panel: branding ── */}
+        {/* ── Left panel: branding (hidden on mobile) ── */}
         <Box
           sx={{
+            display: { xs: "none", md: "flex" },
             flex: "0 0 42%",
-            background: "rgba(255,255,255,0.12)",
-            backdropFilter: "blur(12px)",
+            background: "rgba(255,255,255,0.10)",
+            backdropFilter: "blur(16px)",
+            borderRight: "1px solid rgba(255,255,255,0.15)",
             color: "white",
             p: 5,
-            display: "flex",
             flexDirection: "column",
             justifyContent: "center",
             gap: 3,
           }}
         >
-          {/* Logo + name */}
+          {/* Logo + store name */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
             <Box
               sx={{
-                width: 56,
-                height: 56,
-                borderRadius: 2,
-                bgcolor: "rgba(255,255,255,0.2)",
+                width: 58,
+                height: 58,
+                borderRadius: 2.5,
+                bgcolor: "rgba(255,255,255,0.18)",
+                border: "1px solid rgba(255,255,255,0.3)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -118,31 +126,30 @@ function Login() {
               <StoreIcon sx={{ fontSize: 32 }} />
             </Box>
             <Box>
-              <Typography variant="h4" fontWeight="bold" lineHeight={1.1}>
+              <Typography variant="h4" fontWeight="800" lineHeight={1.1} letterSpacing={-0.5}>
                 {store.name}
               </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.85, mt: 0.3 }}>
+              <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.4 }}>
                 {store.tagline}
               </Typography>
             </Box>
           </Box>
 
-          <Typography variant="body1" sx={{ opacity: 0.9, lineHeight: 1.7 }}>
+          <Typography variant="body1" sx={{ opacity: 0.88, lineHeight: 1.8 }}>
             Streamline your store operations with a powerful and intuitive point of sale solution.
           </Typography>
 
           {/* Feature list */}
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.6 }}>
             {FEATURES.map(f => (
               <Box key={f} sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                <CheckIcon sx={{ fontSize: 18, opacity: 0.9, flexShrink: 0 }} />
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>{f}</Typography>
+                <CheckIcon sx={{ fontSize: 18, opacity: 0.85, flexShrink: 0 }} />
+                <Typography variant="body2" sx={{ opacity: 0.88 }}>{f}</Typography>
               </Box>
             ))}
           </Box>
 
-          {/* Footer */}
-          <Typography variant="caption" sx={{ opacity: 0.6, mt: "auto" }}>
+          <Typography variant="caption" sx={{ opacity: 0.55, mt: "auto" }}>
             © {new Date().getFullYear()} Holosoft Digital Solutions. All rights reserved.
           </Typography>
         </Box>
@@ -151,25 +158,59 @@ function Login() {
         <Box
           sx={{
             flex: 1,
-            bgcolor: "background.paper",
-            p: { xs: 4, sm: 6 },
+            bgcolor: "white",
+            p: { xs: 4, sm: 5, md: 6 },
             display: "flex",
             flexDirection: "column",
             justifyContent: "center",
+            minHeight: { xs: "100vh", md: "auto" },
           }}
         >
+          {/* Mobile: small brand header */}
+          <Box
+            sx={{
+              display: { xs: "flex", md: "none" },
+              alignItems: "center",
+              gap: 1.5,
+              mb: 4,
+            }}
+          >
+            <Box
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: 2,
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <StoreIcon sx={{ fontSize: 22, color: "white" }} />
+            </Box>
+            <Box>
+              <Typography variant="subtitle1" fontWeight="bold" lineHeight={1.1}>
+                {store.name}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {store.tagline}
+              </Typography>
+            </Box>
+          </Box>
+
           {/* Form header */}
           <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", mb: 4 }}>
             <Box
               sx={{
-                width: 56,
-                height: 56,
+                width: 58,
+                height: 58,
                 borderRadius: "50%",
                 background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 mb: 2,
+                boxShadow: "0 8px 24px rgba(102,126,234,0.4)",
               }}
             >
               <PosIcon sx={{ color: "white", fontSize: 28 }} />
@@ -188,7 +229,7 @@ function Login() {
             </Alert>
           )}
 
-          <Box component="form" onSubmit={handleSubmit} sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <Box component="form" onSubmit={handleSubmit} sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
             <TextField
               label="Username"
               name="username"
@@ -240,17 +281,19 @@ function Login() {
               variant="contained"
               disabled={loading}
               sx={{
-                mt: 1,
-                py: 1.5,
+                mt: 0.5,
+                py: 1.6,
                 borderRadius: 2,
                 fontSize: "1rem",
                 fontWeight: "bold",
                 background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                boxShadow: "0 6px 20px rgba(102,126,234,0.45)",
                 '&:hover': {
                   background: "linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)",
                   transform: "translateY(-1px)",
-                  boxShadow: 4,
+                  boxShadow: "0 10px 28px rgba(102,126,234,0.5)",
                 },
+                transition: "all 0.2s ease",
               }}
             >
               {loading ? <CircularProgress size={24} color="inherit" /> : "Sign In"}
@@ -259,6 +302,17 @@ function Login() {
 
           <Typography variant="caption" color="text.disabled" textAlign="center" mt={4} display="block">
             Secure POS System • Staff accounts are managed by your administrator
+          </Typography>
+
+          {/* Mobile copyright */}
+          <Typography
+            variant="caption"
+            color="text.disabled"
+            textAlign="center"
+            mt={1}
+            display={{ xs: "block", md: "none" }}
+          >
+            © {new Date().getFullYear()} Holosoft Digital Solutions
           </Typography>
         </Box>
       </Box>
