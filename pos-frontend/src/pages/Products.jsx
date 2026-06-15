@@ -3,9 +3,11 @@ import {
   TableHead, TableRow, Paper, Button, Snackbar, Alert, Box, Grid,
   Card, CardContent, Chip, IconButton, TextField, MenuItem, Avatar,
   LinearProgress, Tooltip, Dialog, DialogTitle, DialogContent,
-  DialogActions, FormControl, InputLabel, Select
+  DialogActions, FormControl, InputLabel, Select, CircularProgress,
+  List, ListItem, ListItemText, TablePagination, Checkbox
 } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useCallback, useContext } from "react";
+import { AuthContext } from "../context/AuthContext";
 import axiosInstance from "../utils/axiosInstance";
 import AddProductModal from "../components/AddProductModal";
 import CategoryManagerModal from '../components/CategoryManagerModal';
@@ -21,10 +23,37 @@ import {
   Search as SearchIcon,
   QrCode as BarcodeIcon,
   LowPriority as LowStockIcon,
-  Visibility as ViewIcon
+  Visibility as ViewIcon,
+  Download as DownloadIcon,
+  Upload as UploadIcon,
+  CheckCircle as CheckIcon,
+  Error as ErrorIcon,
+  ArrowUpward as AscIcon,
+  ArrowDownward as DescIcon,
+  UnfoldMore as UnsortedIcon,
+  DeleteSweep as BulkDeleteIcon,
 } from "@mui/icons-material";
 
+// Currency formatting helper function
+const formatCurrency = (amount) => {
+  if (amount === null || amount === undefined || isNaN(amount)) {
+    return '₦0.00';
+  }
+
+  // Convert to number if it's a string
+  const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+
+  // Format with commas for thousands and two decimal places
+  return `₦${numAmount.toLocaleString('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+};
+
 function ProductsPage() {
+  const { user } = useContext(AuthContext);
+  const canWrite = user?.role === 'admin' || user?.role === 'manager';
+
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -38,6 +67,21 @@ function ProductsPage() {
   const [viewedProduct, setViewedProduct] = useState(null);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResults, setUploadResults] = useState(null);
+  const fileInputRef = useRef(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [searchInput, setSearchInput] = useState("");   // immediate (shown in input)
+  const [sortConfig, setSortConfig] = useState({ column: 'name', direction: 'asc' });
+  const [selected, setSelected] = useState([]);
+
+  // Debounce: update searchTerm 300ms after user stops typing
+  useEffect(() => {
+    const timer = setTimeout(() => { setSearchTerm(searchInput); setPage(0); }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   useEffect(() => {
     fetchProducts();
@@ -89,13 +133,90 @@ function ProductsPage() {
     setViewDialogOpen(true);
   };
 
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await axiosInstance.get('products/download-template/', { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([response.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'product_upload_template.xlsx';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      showSnackbar('Failed to download template', 'error');
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';
+    setUploading(true);
+    setUploadResults(null);
+    setUploadDialogOpen(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await axiosInstance.post('products/bulk-upload/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setUploadResults(res.data);
+      fetchProducts();
+    } catch (err) {
+      setUploadResults({ error: err.response?.data?.error || 'Upload failed' });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleSort = (column) => {
+    setSortConfig(prev => ({
+      column,
+      direction: prev.column === column && prev.direction === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  const handleSelectAll = (e) => {
+    setSelected(e.target.checked ? paginatedProducts.map(p => p.id) : []);
+  };
+
+  const handleSelectOne = (id) => {
+    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Permanently delete ${selected.length} product(s)? This cannot be undone.`)) return;
+
+    const results = await Promise.allSettled(
+      selected.map(id => axiosInstance.delete(`products/${id}/`))
+    );
+
+    const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected');
+
+    setSelected([]);
+    fetchProducts();
+
+    if (failed.length === 0) {
+      showSnackbar(`${succeeded} product(s) deleted successfully`);
+    } else if (succeeded === 0) {
+      const reason = failed[0].reason?.response?.data?.error || 'Products could not be deleted';
+      showSnackbar(reason, 'error');
+    } else {
+      showSnackbar(
+        `${succeeded} deleted. ${failed.length} could not be deleted (they have sales history).`,
+        'warning'
+      );
+    }
+  };
+
   // Inventory Analytics
   const getInventoryStats = () => {
     const totalProducts = products.length;
     const lowStockProducts = products.filter(p => p.stock <= 10).length;
     const outOfStockProducts = products.filter(p => p.stock === 0).length;
     const totalInventoryValue = products.reduce((sum, p) => sum + (p.stock * parseFloat(p.cost_price || 0)), 0);
-    
+
     return {
       totalProducts,
       lowStockProducts,
@@ -119,18 +240,30 @@ function ProductsPage() {
     return ((price - cost) / cost * 100).toFixed(1);
   };
 
-  // Filter products
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         product.barcode?.toString().includes(searchTerm);
+      product.barcode?.toString().includes(searchTerm);
     const matchesCategory = categoryFilter === "all" || product.category?.id.toString() === categoryFilter;
-    const matchesStock = stockFilter === "all" || 
-                        (stockFilter === "low" && product.stock <= 10) ||
-                        (stockFilter === "out" && product.stock === 0) ||
-                        (stockFilter === "healthy" && product.stock > 10);
-    
+    const matchesStock = stockFilter === "all" ||
+      (stockFilter === "low" && product.stock <= 10) ||
+      (stockFilter === "out" && product.stock === 0) ||
+      (stockFilter === "healthy" && product.stock > 10);
     return matchesSearch && matchesCategory && matchesStock;
   });
+
+  const sortedProducts = [...filteredProducts].sort((a, b) => {
+    const dir = sortConfig.direction === 'asc' ? 1 : -1;
+    switch (sortConfig.column) {
+      case 'name':     return a.name.localeCompare(b.name) * dir;
+      case 'price':    return (parseFloat(a.price) - parseFloat(b.price)) * dir;
+      case 'stock':    return (a.stock - b.stock) * dir;
+      case 'cost':     return (parseFloat(a.cost_price) - parseFloat(b.cost_price)) * dir;
+      case 'margin':   return (parseFloat(getProfitMargin(a)) - parseFloat(getProfitMargin(b))) * dir;
+      default:         return 0;
+    }
+  });
+
+  const paginatedProducts = sortedProducts.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
   const stats = getInventoryStats();
 
@@ -202,7 +335,7 @@ function ProductsPage() {
         <Grid item xs={12} sm={6} md={3}>
           <StatCard
             title="INVENTORY VALUE"
-            value={`₦${stats.totalInventoryValue.toLocaleString()}`}
+            value={formatCurrency(stats.totalInventoryValue)}
             subtitle="Total cost value"
             icon={<TrendingUpIcon />}
             color="#2e7d32"
@@ -218,8 +351,8 @@ function ProductsPage() {
               <TextField
                 fullWidth
                 placeholder="Search products by name or barcode..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 InputProps={{
                   startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
                 }}
@@ -230,7 +363,7 @@ function ProductsPage() {
                 <InputLabel>Category</InputLabel>
                 <Select
                   value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  onChange={(e) => { setCategoryFilter(e.target.value); setPage(0); }}
                   label="Category"
                 >
                   <MenuItem value="all">All Categories</MenuItem>
@@ -247,7 +380,7 @@ function ProductsPage() {
                 <InputLabel>Stock Status</InputLabel>
                 <Select
                   value={stockFilter}
-                  onChange={(e) => setStockFilter(e.target.value)}
+                  onChange={(e) => { setStockFilter(e.target.value); setPage(0); }}
                   label="Stock Status"
                 >
                   <MenuItem value="all">All Stock</MenuItem>
@@ -257,25 +390,24 @@ function ProductsPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={2} sx={{ textAlign: 'right', display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-              <Button
-                variant="outlined"
-                startIcon={<CategoryIcon />}
-                onClick={() => setCategoryModalOpen(true)}
-              >
-                Manage Categories
-              </Button>
-            </Grid>
-            <Grid item xs={12} md={2} sx={{ textAlign: 'right' }}>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setAddModalOpen(true)}
-                size="large"
-                sx={{ borderRadius: 2 }}
-              >
-                Add New Product
-              </Button>
+            <Grid item xs={12} md={4} sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              {canWrite && (
+                <>
+                  <Button variant="outlined" startIcon={<CategoryIcon />} onClick={() => setCategoryModalOpen(true)}>
+                    Categories
+                  </Button>
+                  <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleDownloadTemplate}>
+                    Template
+                  </Button>
+                  <Button variant="outlined" startIcon={<UploadIcon />} onClick={() => fileInputRef.current?.click()}>
+                    Upload Excel
+                  </Button>
+                  <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileUpload} />
+                  <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddModalOpen(true)} sx={{ borderRadius: 2 }}>
+                    Add Product
+                  </Button>
+                </>
+              )}
             </Grid>
           </Grid>
         </CardContent>
@@ -284,11 +416,25 @@ function ProductsPage() {
       {/* Products Table */}
       <Card>
         <CardContent sx={{ p: 0 }}>
-          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <InventoryIcon color="primary" />
               Products ({filteredProducts.length} items)
+              {selected.length > 0 && (
+                <Chip label={`${selected.length} selected`} size="small" color="primary" sx={{ ml: 1 }} />
+              )}
             </Typography>
+            {canWrite && selected.length > 0 && (
+              <Button
+                variant="contained"
+                color="error"
+                size="small"
+                startIcon={<BulkDeleteIcon />}
+                onClick={handleBulkDelete}
+              >
+                Delete {selected.length} Selected
+              </Button>
+            )}
           </Box>
 
           {loading ? (
@@ -299,30 +445,74 @@ function ProductsPage() {
             <TableContainer>
               <Table>
                 <TableHead>
-                  <TableRow>
-                    <TableCell>Product</TableCell>
-                    <TableCell>Category</TableCell>
-                    <TableCell align="right">Price</TableCell>
-                    <TableCell align="center">Stock Level</TableCell>
-                    <TableCell align="right">Cost</TableCell>
-                    <TableCell align="right">Margin</TableCell>
-                    <TableCell align="center">Actions</TableCell>
+                  <TableRow sx={{ bgcolor: 'primary.main' }}>
+                    {canWrite && (
+                      <TableCell padding="checkbox" sx={{ bgcolor: 'primary.main' }}>
+                        <Checkbox
+                          size="small"
+                          sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }}
+                          indeterminate={selected.length > 0 && selected.length < paginatedProducts.length}
+                          checked={paginatedProducts.length > 0 && selected.length === paginatedProducts.length}
+                          onChange={handleSelectAll}
+                        />
+                      </TableCell>
+                    )}
+                    {[
+                      { id: 'name',   label: 'Product',     align: 'left'  },
+                      { id: null,     label: 'Category',    align: 'left'  },
+                      { id: 'price',  label: 'Price',       align: 'right' },
+                      { id: 'stock',  label: 'Stock Level', align: 'center'},
+                      { id: 'cost',   label: 'Cost',        align: 'right' },
+                      { id: 'margin', label: 'Margin',      align: 'right' },
+                      { id: null,     label: 'Actions',     align: 'center'},
+                    ].map(({ id, label, align }) => (
+                      <TableCell
+                        key={label}
+                        align={align}
+                        onClick={id ? () => handleSort(id) : undefined}
+                        sx={{
+                          color: 'white', fontWeight: 'bold',
+                          cursor: id ? 'pointer' : 'default',
+                          userSelect: 'none',
+                          '&:hover': id ? { bgcolor: 'primary.dark' } : {},
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                          {label}
+                          {id && (sortConfig.column === id
+                            ? (sortConfig.direction === 'asc' ? <AscIcon fontSize="small" /> : <DescIcon fontSize="small" />)
+                            : <UnsortedIcon fontSize="small" sx={{ opacity: 0.5 }} />
+                          )}
+                        </Box>
+                      </TableCell>
+                    ))}
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredProducts.map((product) => {
+                  {paginatedProducts.map((product) => {
                     const stockStatus = getStockStatus(product.stock);
                     const profitMargin = getProfitMargin(product);
-                    
+
                     return (
-                      <TableRow 
-                        key={product.id} 
+                      <TableRow
+                        key={product.id}
                         hover
-                        sx={{ 
-                          bgcolor: product.stock === 0 ? 'error.light' : 
-                                  product.stock <= 5 ? 'warning.light' : 'inherit'
+                        selected={selected.includes(product.id)}
+                        sx={{
+                          bgcolor: product.stock === 0 ? 'error.light' :
+                            product.stock <= 5 ? 'warning.light' : 'inherit'
                         }}
                       >
+                        {canWrite && (
+                          <TableCell padding="checkbox">
+                            <Checkbox
+                              size="small"
+                              checked={selected.includes(product.id)}
+                              onChange={() => handleSelectOne(product.id)}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                             <Avatar sx={{ bgcolor: 'primary.main' }}>
@@ -342,16 +532,16 @@ function ProductsPage() {
                           </Box>
                         </TableCell>
                         <TableCell>
-                          <Chip 
-                            label={product.category?.name || 'Uncategorized'} 
-                            size="small" 
+                          <Chip
+                            label={product.category?.name || 'Uncategorized'}
+                            size="small"
                             variant="outlined"
                             icon={<CategoryIcon />}
                           />
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body1" fontWeight="bold" color="primary">
-                            ₦{parseFloat(product.price).toLocaleString()}
+                            {formatCurrency(product.price)}
                           </Typography>
                         </TableCell>
                         <TableCell align="center">
@@ -360,9 +550,9 @@ function ProductsPage() {
                               {stockStatus.icon}
                             </Tooltip>
                             <Box sx={{ flexGrow: 1 }}>
-                              <LinearProgress 
-                                variant="determinate" 
-                                value={Math.min((product.stock / 50) * 100, 100)} 
+                              <LinearProgress
+                                variant="determinate"
+                                value={Math.min((product.stock / 50) * 100, 100)}
                                 color={stockStatus.color}
                                 sx={{ height: 8, borderRadius: 4 }}
                               />
@@ -374,13 +564,13 @@ function ProductsPage() {
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2">
-                            ₦{parseFloat(product.cost_price).toLocaleString()}
+                            {formatCurrency(product.cost_price)}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <Chip 
-                            label={`${profitMargin}%`} 
-                            size="small" 
+                          <Chip
+                            label={`${profitMargin}%`}
+                            size="small"
                             color={profitMargin > 30 ? "success" : profitMargin > 15 ? "warning" : "error"}
                             variant="outlined"
                           />
@@ -388,35 +578,39 @@ function ProductsPage() {
                         <TableCell align="center">
                           <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
                             <Tooltip title="View Details">
-                              <IconButton 
-                                size="small" 
+                              <IconButton
+                                size="small"
                                 color="info"
                                 onClick={() => handleViewProduct(product)}
                               >
                                 <ViewIcon />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Edit Product">
-                              <IconButton 
-                                size="small" 
-                                color="primary"
-                                onClick={() => {
-                                  setSelectedProduct(product);
-                                  setEditModalOpen(true);
-                                }}
-                              >
-                                <EditIcon />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Delete Product">
-                              <IconButton 
-                                size="small" 
-                                color="error"
-                                onClick={() => handleDeleteProduct(product.id)}
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            </Tooltip>
+                            {canWrite && (
+                              <>
+                                <Tooltip title="Edit Product">
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={() => {
+                                      setSelectedProduct(product);
+                                      setEditModalOpen(true);
+                                    }}
+                                  >
+                                    <EditIcon />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Delete Product">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => handleDeleteProduct(product.id)}
+                                  >
+                                    <DeleteIcon />
+                                  </IconButton>
+                                </Tooltip>
+                              </>
+                            )}
                           </Box>
                         </TableCell>
                       </TableRow>
@@ -427,6 +621,20 @@ function ProductsPage() {
             </TableContainer>
           )}
 
+          {!loading && filteredProducts.length > 0 && (
+            <TablePagination
+              component="div"
+              count={filteredProducts.length}
+              page={page}
+              onPageChange={(_, newPage) => setPage(newPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+              rowsPerPageOptions={[10, 25, 50, 100]}
+              labelDisplayedRows={({ from, to, count }) => `${from}–${to} of ${count} products`}
+              sx={{ borderTop: 1, borderColor: 'divider' }}
+            />
+          )}
+
           {!loading && filteredProducts.length === 0 && (
             <Box sx={{ p: 4, textAlign: 'center' }}>
               <InventoryIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
@@ -434,12 +642,12 @@ function ProductsPage() {
                 No products found
               </Typography>
               <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                {searchTerm || categoryFilter !== "all" || stockFilter !== "all" 
-                  ? "Try adjusting your filters" 
+                {searchTerm || categoryFilter !== "all" || stockFilter !== "all"
+                  ? "Try adjusting your filters"
                   : "Get started by adding your first product"}
               </Typography>
-              <Button 
-                variant="contained" 
+              <Button
+                variant="contained"
                 startIcon={<AddIcon />}
                 onClick={() => setAddModalOpen(true)}
               >
@@ -478,27 +686,27 @@ function ProductsPage() {
                   </Box>
                 </Box>
               </Grid>
-              
+
               <Grid item xs={12} md={6}>
                 <Typography variant="h6" gutterBottom>Pricing & Stock</Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Box>
                     <Typography variant="caption" color="textSecondary">Selling Price</Typography>
                     <Typography variant="body1" fontWeight="bold" color="primary">
-                      ₦{parseFloat(viewedProduct.price).toLocaleString()}
+                      {formatCurrency(viewedProduct.price)}
                     </Typography>
                   </Box>
                   <Box>
                     <Typography variant="caption" color="textSecondary">Cost Price</Typography>
                     <Typography variant="body1">
-                      ₦{parseFloat(viewedProduct.cost_price).toLocaleString()}
+                      {formatCurrency(viewedProduct.cost_price)}
                     </Typography>
                   </Box>
                   <Box>
                     <Typography variant="caption" color="textSecondary">Stock Level</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Chip 
-                        label={getStockStatus(viewedProduct.stock).label} 
+                      <Chip
+                        label={getStockStatus(viewedProduct.stock).label}
                         color={getStockStatus(viewedProduct.stock).color}
                         size="small"
                       />
@@ -518,7 +726,7 @@ function ProductsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
-          <Button 
+          <Button
             variant="contained"
             onClick={() => {
               setSelectedProduct(viewedProduct);
@@ -554,13 +762,61 @@ function ProductsPage() {
       />
 
       <CategoryManagerModal
-      open={categoryModalOpen}
-      onClose={() => setCategoryModalOpen(false)}
-      onSuccess={() => {
-        fetchCategories(); // Refresh categories list
-        fetchProducts(); // Refresh products to show updated categories
-      }}
-    />
+        open={categoryModalOpen}
+        onClose={() => setCategoryModalOpen(false)}
+        onSuccess={() => {
+          fetchCategories(); // Refresh categories list
+          fetchProducts(); // Refresh products to show updated categories
+        }}
+      />
+
+      {/* Bulk Upload Results Dialog */}
+      <Dialog open={uploadDialogOpen} onClose={() => !uploading && setUploadDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Bulk Product Upload</DialogTitle>
+        <DialogContent>
+          {uploading ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, gap: 2 }}>
+              <CircularProgress />
+              <Typography>Processing your file...</Typography>
+            </Box>
+          ) : uploadResults?.error && !uploadResults?.errors ? (
+            <Alert severity="error">{uploadResults.error}</Alert>
+          ) : uploadResults ? (
+            <Box>
+              {uploadResults.message && (
+                <Alert severity="warning" sx={{ mb: 2 }}>{uploadResults.message}</Alert>
+              )}
+              {!uploadResults.message && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  Upload complete — {uploadResults.created} created, {uploadResults.updated} updated.
+                </Alert>
+              )}
+              {uploadResults.errors?.length > 0 && (
+                <>
+                  <Typography variant="subtitle2" color="error" gutterBottom>
+                    Fix these rows and re-upload:
+                  </Typography>
+                  <List dense sx={{ maxHeight: 220, overflow: 'auto', bgcolor: 'error.50', borderRadius: 1, border: '1px solid', borderColor: 'error.light' }}>
+                    {uploadResults.errors.map((e, i) => (
+                      <ListItem key={i} divider>
+                        <ListItemText
+                          primary={`Row ${e.row}: ${e.name}`}
+                          secondary={e.error}
+                          primaryTypographyProps={{ fontWeight: 'medium', variant: 'body2' }}
+                          secondaryTypographyProps={{ color: 'error.main', variant: 'caption' }}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </>
+              )}
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUploadDialogOpen(false)} disabled={uploading}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar */}
       <Snackbar

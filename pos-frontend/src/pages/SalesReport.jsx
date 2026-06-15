@@ -83,6 +83,7 @@ const SalesReport = () => {
   const [analytics, setAnalytics] = useState(null);
   const [activeTab, setActiveTab] = useState(0);
   const [quickStats, setQuickStats] = useState(null);
+  const [marginData, setMarginData] = useState(null);
 
   // Set default date range to last 7 days
   useEffect(() => {
@@ -118,10 +119,13 @@ const SalesReport = () => {
         product_id: filters.product,
       };
 
-      const res = await axiosInstance.get("sales-report/", { params });
+      const [res, marginRes] = await Promise.all([
+        axiosInstance.get("sales-report/", { params }),
+        axiosInstance.get("margin-report/", { params }).catch(() => ({ data: null })),
+      ]);
       setSales(res.data.sales || []);
       setSummary(res.data.daily_summary || []);
-      
+      setMarginData(marginRes.data);
       calculateAnalytics(res.data.sales || [], res.data.daily_summary || []);
       calculateQuickStats(res.data.sales || [], res.data.daily_summary || []);
     } catch (err) {
@@ -1004,6 +1008,7 @@ const SalesReport = () => {
           <Tab label="Sales Data" />
           <Tab label="Product Analytics" />
           <Tab label="Performance" />
+          <Tab label="Margin Analytics" />
         </Tabs>
       </Paper>
 
@@ -1167,6 +1172,114 @@ const SalesReport = () => {
 
           {/* Performance Tab */}
           {activeTab === 3 && <PerformanceTab />}
+
+          {/* Margin Analytics Tab */}
+          {activeTab === 4 && (
+            marginData ? (
+              <Grid container spacing={3}>
+                {/* Summary Cards */}
+                <Grid item xs={12} sm={6} md={3}>
+                  <Card sx={{ bgcolor: 'primary.light', color: 'white' }}>
+                    <CardContent>
+                      <Typography variant="overline">Total Revenue</Typography>
+                      <Typography variant="h5" fontWeight="bold">{formatCurrency(marginData.summary.total_revenue)}</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Card sx={{ bgcolor: 'warning.light' }}>
+                    <CardContent>
+                      <Typography variant="overline">Total Cost</Typography>
+                      <Typography variant="h5" fontWeight="bold">{formatCurrency(marginData.summary.total_cost)}</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Card sx={{ bgcolor: 'success.light', color: 'white' }}>
+                    <CardContent>
+                      <Typography variant="overline">Gross Profit</Typography>
+                      <Typography variant="h5" fontWeight="bold">{formatCurrency(marginData.summary.gross_profit)}</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Card sx={{ bgcolor: 'info.light', color: 'white' }}>
+                    <CardContent>
+                      <Typography variant="overline">Margin %</Typography>
+                      <Typography variant="h5" fontWeight="bold">{marginData.summary.margin_pct}%</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* Daily Margin Chart */}
+                {marginData.by_day?.length > 0 && (
+                  <Grid item xs={12}>
+                    <Card>
+                      <CardContent>
+                        <Typography variant="h6" gutterBottom>Daily Revenue vs Cost vs Profit</Typography>
+                        <Bar
+                          data={{
+                            labels: marginData.by_day.map(d => d.date),
+                            datasets: [
+                              { label: 'Revenue (₦)', data: marginData.by_day.map(d => d.revenue), backgroundColor: 'rgba(25,118,210,0.7)' },
+                              { label: 'Cost (₦)', data: marginData.by_day.map(d => d.cost), backgroundColor: 'rgba(237,108,2,0.7)' },
+                              { label: 'Gross Profit (₦)', data: marginData.by_day.map(d => d.gross_profit), backgroundColor: 'rgba(46,125,50,0.7)' },
+                            ],
+                          }}
+                          options={{ responsive: true, plugins: { legend: { position: 'top' } } }}
+                        />
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                )}
+
+                {/* Per-Product Margin Table */}
+                <Grid item xs={12}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>Product Margin Breakdown</Typography>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Product</TableCell>
+                            <TableCell>Category</TableCell>
+                            <TableCell align="right">Units Sold</TableCell>
+                            <TableCell align="right">Revenue</TableCell>
+                            <TableCell align="right">Cost</TableCell>
+                            <TableCell align="right">Gross Profit</TableCell>
+                            <TableCell align="right">Margin %</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {marginData.by_product.map((p) => (
+                            <TableRow key={p.id} hover>
+                              <TableCell><Typography variant="body2" fontWeight="medium">{p.name}</Typography></TableCell>
+                              <TableCell><Chip label={p.category} size="small" variant="outlined" /></TableCell>
+                              <TableCell align="right">{p.units_sold}</TableCell>
+                              <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 'bold' }}>{formatCurrency(p.revenue)}</TableCell>
+                              <TableCell align="right" sx={{ color: 'warning.main' }}>{formatCurrency(p.cost)}</TableCell>
+                              <TableCell align="right" sx={{ color: p.gross_profit >= 0 ? 'success.main' : 'error.main', fontWeight: 'bold' }}>{formatCurrency(p.gross_profit)}</TableCell>
+                              <TableCell align="right">
+                                <Chip
+                                  label={`${p.margin_pct}%`}
+                                  size="small"
+                                  color={p.margin_pct >= 30 ? 'success' : p.margin_pct >= 15 ? 'warning' : 'error'}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+            ) : (
+              <Box textAlign="center" py={6}>
+                <Typography color="textSecondary">Run the report to see margin analytics</Typography>
+              </Box>
+            )
+          )}
         </>
       ) : (
         <Box textAlign="center" py={6}>

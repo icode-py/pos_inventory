@@ -1,6 +1,6 @@
 import React, { forwardRef } from "react";
 
-const Receipt = forwardRef(({ sale }, ref) => {
+const Receipt = forwardRef(({ sale, store }, ref) => {
   if (!sale) return null;
 
   // Safely extract values with proper fallbacks
@@ -21,19 +21,31 @@ const Receipt = forwardRef(({ sale }, ref) => {
       padding: '10px',
       fontFamily: 'monospace',
       fontSize: '12px',
-      lineHeight: '1.2'
+      lineHeight: '1.2',
+      color: '#000',
+      backgroundColor: '#fff',
     }}>
-      <h2 style={{ 
-        textAlign: 'center', 
-        margin: '5px 0', 
+      <h2 style={{
+        textAlign: 'center',
+        margin: '5px 0',
         fontSize: '14px',
         fontWeight: 'bold'
       }}>
-        HOLO SUPERMARKET
+        {store?.name || 'My Store'}
       </h2>
       <p style={{ textAlign: 'center', margin: '2px 0', fontSize: '10px' }}>
-        Modern Point of Sale
+        {store?.tagline || 'Point of Sale'}
       </p>
+      {store?.phone && (
+        <p style={{ textAlign: 'center', margin: '2px 0', fontSize: '10px' }}>
+          Tel: {store.phone}
+        </p>
+      )}
+      {store?.address && (
+        <p style={{ textAlign: 'center', margin: '2px 0', fontSize: '10px' }}>
+          {store.address}
+        </p>
+      )}
       
       <hr style={{ border: '1px dashed #000', margin: '8px 0' }} />
       
@@ -153,7 +165,7 @@ const Receipt = forwardRef(({ sale }, ref) => {
       
       <hr style={{ border: '1px dashed #000', margin: '6px 0' }} />
       <p style={{ textAlign: 'center', margin: '5px 0', fontSize: '10px', fontWeight: 'bold' }}>
-        Thank you for your business!
+        {store?.receipt_footer || 'Thank you for your business!'}
       </p>
       <p style={{ textAlign: 'center', margin: '2px 0', fontSize: '8px', color: '#666' }}>
         Receipt #{sale.localReceiptId || sale.offline_id || 'ONLINE'}

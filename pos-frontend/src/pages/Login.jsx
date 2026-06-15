@@ -1,63 +1,57 @@
-import { useState, useContext } from "react";
+import { useState, useContext, useEffect } from "react";
+import axios from "axios";
 import { AuthContext } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
-  Box,
-  Container,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  InputAdornment,
-  IconButton,
-  Alert,
-  CircularProgress,
-  Divider,
-  Grid,
-  Card,
-  CardContent
+  Box, Paper, TextField, Button, Typography,
+  InputAdornment, IconButton, Alert, CircularProgress,
 } from "@mui/material";
 import {
-  Visibility,
-  VisibilityOff,
+  Visibility, VisibilityOff,
   Person as PersonIcon,
   Lock as LockIcon,
   Store as StoreIcon,
   PointOfSale as PosIcon,
-  AdminPanelSettings as AdminIcon,
-  ManageAccounts as ManagerIcon,
-  PointOfSale as CashierIcon
+  CheckCircleOutline as CheckIcon,
 } from "@mui/icons-material";
-import StaffRegistrationModal from '../components/StaffRegistrationModal';
+
+const API_URL = import.meta.env.VITE_API_URL || '/api';
+
+const FEATURES = [
+  "Fast and reliable sales processing",
+  "Real-time inventory management",
+  "Comprehensive sales analytics",
+  "Customer loyalty programs",
+];
 
 function Login() {
   const { loginUser } = useContext(AuthContext);
+  const navigate = useNavigate();
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [staffModalOpen, setStaffModalOpen] = useState(false);
-  const navigate = useNavigate();
+  const [store, setStore] = useState({ name: 'HOLO POS', tagline: 'Modern Point of Sale' });
+
+  useEffect(() => {
+    axios.get(`${API_URL}/store-settings/`)
+      .then(res => setStore(res.data))
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
-
     const success = await loginUser(username, password);
-    
     if (success) {
       navigate("/dashboard");
     } else {
       setError("Invalid username or password. Please try again.");
     }
-    
     setLoading(false);
-  };
-
-  const handleClickShowPassword = () => {
-    setShowPassword(!showPassword);
   };
 
   return (
@@ -68,288 +62,206 @@ function Login() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 2,
-        position: 'relative',
-        overflow: 'hidden'
+        p: 3,
+        position: "relative",
+        overflow: "hidden",
       }}
     >
-      {/* Background decorative elements */}
-      <Box
-        sx={{
-          position: 'absolute',
-          top: -100,
-          right: -100,
-          width: 300,
-          height: 300,
-          borderRadius: '50%',
-          background: 'rgba(255, 255, 255, 0.1)',
-        }}
-      />
-      <Box
-        sx={{
-          position: 'absolute',
-          bottom: -50,
-          left: -50,
-          width: 200,
-          height: 200,
-          borderRadius: '50%',
-          background: 'rgba(255, 255, 255, 0.1)',
-        }}
-      />
+      {/* Decorative circles */}
+      <Box sx={{ position: "absolute", top: -80, right: -80, width: 280, height: 280, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.08)" }} />
+      <Box sx={{ position: "absolute", bottom: -60, left: -60, width: 220, height: 220, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.08)" }} />
+      <Box sx={{ position: "absolute", top: "40%", left: "15%", width: 120, height: 120, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.05)" }} />
 
-      <Container 
-        component="main" 
-        maxWidth="lg"
+      {/* Main card — always side by side */}
+      <Box
         sx={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center'
+          display: "flex",
+          alignItems: "stretch",
+          width: "100%",
+          maxWidth: 1050,
+          minHeight: 560,
+          borderRadius: 4,
+          overflow: "hidden",
+          boxShadow: "0 25px 60px rgba(0,0,0,0.35)",
+          position: "relative",
+          zIndex: 1,
         }}
       >
-        <Grid container spacing={4} alignItems="center" justifyContent="center">
-          {/* Left Side - Branding */}
-          <Grid item xs={12} md={5}>
+        {/* ── Left panel: branding ── */}
+        <Box
+          sx={{
+            flex: "0 0 42%",
+            background: "rgba(255,255,255,0.12)",
+            backdropFilter: "blur(12px)",
+            color: "white",
+            p: 5,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            gap: 3,
+          }}
+        >
+          {/* Logo + name */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
             <Box
               sx={{
-                color: "white",
-                textAlign: { xs: 'center', md: 'left' },
-                mb: { xs: 4, md: 0 }
+                width: 56,
+                height: 56,
+                borderRadius: 2,
+                bgcolor: "rgba(255,255,255,0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
               }}
             >
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 2,
-                  mb: 4,
-                  justifyContent: { xs: 'center', md: 'flex-start' }
-                }}
-              >
-                <StoreIcon sx={{ fontSize: 64 }} />
-                <Box>
-                  <Typography variant="h2" component="h1" fontWeight="bold" gutterBottom>
-                    HOLOSOFT
-                  </Typography>
-                  <Typography variant="h5" sx={{ opacity: 0.9 }}>
-                    Modern POS System
-                  </Typography>
-                </Box>
-              </Box>
-
-              <Typography variant="h6" sx={{ mb: 3, opacity: 0.9, maxWidth: 400 }}>
-                Streamline your supermarket operations with our powerful and intuitive point of sale solution.
+              <StoreIcon sx={{ fontSize: 32 }} />
+            </Box>
+            <Box>
+              <Typography variant="h4" fontWeight="bold" lineHeight={1.1}>
+                {store.name}
               </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.85, mt: 0.3 }}>
+                {store.tagline}
+              </Typography>
+            </Box>
+          </Box>
 
-              {/* Features List */}
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 400 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'white' }} />
-                  <Typography>Fast and reliable sales processing</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'white' }} />
-                  <Typography>Real-time inventory management</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'white' }} />
-                  <Typography>Comprehensive sales analytics</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'white' }} />
-                  <Typography>Customer loyalty programs</Typography>
-                </Box>
+          <Typography variant="body1" sx={{ opacity: 0.9, lineHeight: 1.7 }}>
+            Streamline your store operations with a powerful and intuitive point of sale solution.
+          </Typography>
+
+          {/* Feature list */}
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+            {FEATURES.map(f => (
+              <Box key={f} sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <CheckIcon sx={{ fontSize: 18, opacity: 0.9, flexShrink: 0 }} />
+                <Typography variant="body2" sx={{ opacity: 0.9 }}>{f}</Typography>
               </Box>
+            ))}
+          </Box>
+
+          {/* Footer */}
+          <Typography variant="caption" sx={{ opacity: 0.6, mt: "auto" }}>
+            © {new Date().getFullYear()} Holosoft Digital Solutions. All rights reserved.
+          </Typography>
+        </Box>
+
+        {/* ── Right panel: form ── */}
+        <Box
+          sx={{
+            flex: 1,
+            bgcolor: "background.paper",
+            p: { xs: 4, sm: 6 },
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+          }}
+        >
+          {/* Form header */}
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", mb: 4 }}>
+            <Box
+              sx={{
+                width: 56,
+                height: 56,
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                mb: 2,
+              }}
+            >
+              <PosIcon sx={{ color: "white", fontSize: 28 }} />
             </Box>
-          </Grid>
+            <Typography variant="h5" fontWeight="bold">
+              Welcome Back
+            </Typography>
+            <Typography variant="body2" color="text.secondary" mt={0.5} textAlign="center">
+              Sign in to access your dashboard
+            </Typography>
+          </Box>
 
-          {/* Right Side - Login Form */}
-          <Grid item xs={12} md={7}>
-            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-              <Paper
-                elevation={8}
-                sx={{
-                  padding: 4,
-                  width: "100%",
-                  maxWidth: 500,
-                  borderRadius: 3,
-                  background: "rgba(255, 255, 255, 0.95)",
-                  backdropFilter: "blur(10px)",
-                  border: "1px solid rgba(255, 255, 255, 0.2)"
-                }}
-              >
-                <Box
-                  sx={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: 2,
-                    mb: 3
-                  }}
-                >
-                  <PosIcon 
-                    sx={{ 
-                      fontSize: 48, 
-                      color: "primary.main",
-                      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                      borderRadius: "50%",
-                      p: 1
-                    }} 
-                  />
-                  <Typography variant="h4" component="h2" fontWeight="bold" textAlign="center">
-                    Welcome Back
-                  </Typography>
-                  <Typography variant="body1" color="text.secondary" textAlign="center">
-                    Sign in to access your dashboard and manage your store
-                  </Typography>
-                </Box>
+          {error && (
+            <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+              {error}
+            </Alert>
+          )}
 
-                {/* Error Alert */}
-                {error && (
-                  <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
-                    {error}
-                  </Alert>
-                )}
+          <Box component="form" onSubmit={handleSubmit} sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <TextField
+              label="Username"
+              name="username"
+              autoComplete="username"
+              autoFocus
+              required
+              fullWidth
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PersonIcon color="primary" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+            />
 
-                <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
-                  <TextField
-                    margin="normal"
-                    required
-                    fullWidth
-                    id="username"
-                    label="Username"
-                    name="username"
-                    autoComplete="username"
-                    autoFocus
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <PersonIcon color="primary" />
-                        </InputAdornment>
-                      ),
-                    }}
-                    sx={{
-                      mb: 2,
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: 2,
-                        '&:hover fieldset': {
-                          borderColor: 'primary.main',
-                        },
-                      }
-                    }}
-                  />
-                  <TextField
-                    margin="normal"
-                    required
-                    fullWidth
-                    name="password"
-                    label="Password"
-                    type={showPassword ? "text" : "password"}
-                    id="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <LockIcon color="primary" />
-                        </InputAdornment>
-                      ),
-                      endAdornment: (
-                        <InputAdornment position="end">
-                          <IconButton
-                            aria-label="toggle password visibility"
-                            onClick={handleClickShowPassword}
-                            edge="end"
-                          >
-                            {showPassword ? <VisibilityOff /> : <Visibility />}
-                          </IconButton>
-                        </InputAdornment>
-                      ),
-                    }}
-                    sx={{
-                      mb: 3,
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: 2,
-                        '&:hover fieldset': {
-                          borderColor: 'primary.main',
-                        },
-                      }
-                    }}
-                  />
-                  <Button
-                    type="submit"
-                    fullWidth
-                    variant="contained"
-                    disabled={loading}
-                    sx={{
-                      mt: 1,
-                      mb: 2,
-                      py: 1.5,
-                      borderRadius: 2,
-                      fontSize: "1.1rem",
-                      fontWeight: "bold",
-                      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                      '&:hover': {
-                        background: "linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)",
-                        transform: "translateY(-2px)",
-                        boxShadow: 4
-                      },
-                      '&:disabled': {
-                        background: "grey.300"
-                      }
-                    }}
-                  >
-                    {loading ? (
-                      <CircularProgress size={24} color="inherit" />
-                    ) : (
-                      "Sign In"
-                    )}
-                  </Button>
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    onClick={() => setStaffModalOpen(true)}
-                    sx={{
-                      py: 1.5,
-                      borderRadius: 2,
-                      fontSize: "1rem",
-                      borderColor: 'primary.main',
-                      color: 'primary.main',
-                      '&:hover': {
-                        borderColor: 'primary.dark',
-                        backgroundColor: 'primary.light',
-                        color: 'primary.dark'
-                      }
-                    }}
-                    startIcon={<PersonIcon />}
-                  >
-                    Sign Up
-                  </Button>
-                </Box>
+            <TextField
+              label="Password"
+              name="password"
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              required
+              fullWidth
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <LockIcon color="primary" />
+                  </InputAdornment>
+                ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton onClick={() => setShowPassword(p => !p)} edge="end">
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+            />
 
-                {/* Footer */}
-                <Box sx={{ mt: 4, textAlign: "center" }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Secure POS System • v1.0.0
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    © 2025 HOLOSOFT DIGITAL SOLUTIONS. All rights reserved.
-                  </Typography>
-                </Box>
-              </Paper>
-            </Box>
-          </Grid>
-        </Grid>
-      </Container>
-        <StaffRegistrationModal
-        open={staffModalOpen}
-        onClose={() => setStaffModalOpen(false)}
-        onSuccess={() => {
-          // Success is handled within the modal
-        }}
-      />
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              disabled={loading}
+              sx={{
+                mt: 1,
+                py: 1.5,
+                borderRadius: 2,
+                fontSize: "1rem",
+                fontWeight: "bold",
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                '&:hover': {
+                  background: "linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)",
+                  transform: "translateY(-1px)",
+                  boxShadow: 4,
+                },
+              }}
+            >
+              {loading ? <CircularProgress size={24} color="inherit" /> : "Sign In"}
+            </Button>
+          </Box>
+
+          <Typography variant="caption" color="text.disabled" textAlign="center" mt={4} display="block">
+            Secure POS System • Staff accounts are managed by your administrator
+          </Typography>
+        </Box>
+      </Box>
     </Box>
   );
 }

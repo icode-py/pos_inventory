@@ -1,11 +1,15 @@
 # serializers.py
 from rest_framework import serializers
-from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount
+from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, AuditLog, StoreSettings
 from rest_framework.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import F
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -115,22 +119,22 @@ class ProductSerializer(serializers.ModelSerializer):
     def validate_price(self, value):
         if value <= 0:
             raise serializers.ValidationError("Price must be positive")
-        if value > 1000000:  # ₦1,000,000 maximum
+        if value > 50000000:  # ₦50,000,000 maximum
             raise serializers.ValidationError("Price too high")
         return round(value, 2)
 
     def validate_cost_price(self, value):
         if value < 0:
             raise serializers.ValidationError("Cost price cannot be negative")
-        if value > 1000000:
+        if value > 50000000:
             raise serializers.ValidationError("Cost price too high")
         return round(value, 2) if value else value
 
     def validate_stock(self, value):
         if value < 0:
             raise serializers.ValidationError("Stock cannot be negative")
-        if value > 100000:
-            raise serializers.ValidationError("Stock quantity too high")
+        if value > 1000000:
+            raise serializers.ValidationError("Stock quantity too high maximum 1m")
         return value
 
     def validate_barcode(self, value):
@@ -141,6 +145,39 @@ class ProductSerializer(serializers.ModelSerializer):
     def get_bulk_discounts(self, obj):
         active_discounts = obj.bulk_discounts.filter(is_active=True)
         return BulkDiscountSerializer(active_discounts, many=True).data
+    
+    def validate(self, data):
+        # Additional validation: cost price should not be higher than selling price
+        if 'cost_price' in data and 'price' in data:
+            if data['cost_price'] > data['price']:
+                raise serializers.ValidationError({
+                    'cost_price': 'Cost price cannot be higher than selling price'
+                })
+        
+        # Validate bulk pricing
+        if data.get('is_bulk_product', False):
+            bulk_quantity = data.get('bulk_quantity', 1)
+            bulk_price = data.get('bulk_price')
+            
+            if bulk_quantity <= 1:
+                raise serializers.ValidationError({
+                    'bulk_quantity': 'Bulk quantity must be greater than 1 for bulk products'
+                })
+            
+            if bulk_price is None or bulk_price <= 0:
+                raise serializers.ValidationError({
+                    'bulk_price': 'Bulk price must be positive for bulk products'
+                })
+            
+            # Ensure bulk price is better than individual pricing
+            unit_price = data.get('price', 0)
+            if bulk_price >= (unit_price * bulk_quantity):
+                raise serializers.ValidationError({
+                    'bulk_price': f'Bulk price should be less than {bulk_quantity} × individual price (₦{unit_price * bulk_quantity})'
+                })
+        
+        return data
+
 
 
 class SaleItemSerializer(serializers.ModelSerializer):
@@ -183,21 +220,21 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
     def validate_total_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Total amount must be positive")
-        if value > 10000000:  # ₦10,000,000 maximum
+        if value > 100000000:  # ₦100,000,000 maximum
             raise serializers.ValidationError("Total amount too high")
         return round(value, 2)
 
     def validate_paid_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Paid amount must be positive")
-        if value > 10000000:
+        if value > 100000000:
             raise serializers.ValidationError("Paid amount too high")
         return round(value, 2)
 
     def validate_change_given(self, value):
         if value < 0:
             raise serializers.ValidationError("Change given cannot be negative")
-        if value > 1000000:
+        if value > 5000000:
             raise serializers.ValidationError("Change amount too high")
         return round(value, 2)
 
@@ -229,10 +266,9 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
         items_data = validated_data.pop('items')
         customer = validated_data.pop('customer', None)
         
-        # Security log
         request = self.context.get('request')
         if request:
-            print(f"SECURITY: Sale created by {request.user.username} from {request.META.get('REMOTE_ADDR')}")
+            logger.info('Sale created by %s from %s', request.user.username, request.META.get('REMOTE_ADDR'))
 
         # Create the sale transaction WITH the customer
         transaction_instance = SaleTransaction.objects.create(
@@ -254,12 +290,26 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
             # Create SaleItem
             SaleItem.objects.create(transaction=transaction_instance, **item_data)
 
-        # Create customer transaction record if customer exists
+        # Award loyalty points and update customer stats (atomic to avoid race conditions)
         if customer:
+            total = float(transaction_instance.total_amount)
+            loyalty_settings = LoyaltySettings.objects.filter(is_active=True).first()
+            if loyalty_settings and float(loyalty_settings.points_per_amount) >= 1:
+                points_earned = int(total / float(loyalty_settings.points_per_amount))
+            else:
+                points_earned = int(total / 100)
+
+            # F() expressions update atomically in the database — no race condition
+            Customer.objects.filter(pk=customer.pk).update(
+                loyalty_points=F('loyalty_points') + points_earned,
+                total_spent=F('total_spent') + total,
+                total_visits=F('total_visits') + 1,
+            )
+
             CustomerTransaction.objects.create(
                 customer=customer,
                 sale=transaction_instance,
-                points_earned=0  # Will be calculated separately
+                points_earned=points_earned,
             )
 
         return transaction_instance
@@ -271,7 +321,8 @@ class StaffSerializer(serializers.ModelSerializer):
     role_display = serializers.ReadOnlyField(source='get_role_display')
     class Meta:
         model = Staff
-        fields = ['id', 'username', 'password', 'confirm_password', 'is_cashier', 'is_manager', 'is_admin','role_display']
+        fields = ['id', 'username', 'password', 'confirm_password', 'is_cashier', 'is_manager', 'is_admin', 'is_active', 'date_joined', 'role_display']
+        read_only_fields = ['date_joined']
         extra_kwargs = {
             'username': {'validators': []}  # Disable unique validator for updates
         }
@@ -329,9 +380,10 @@ class CustomerSerializer(serializers.ModelSerializer):
         fields = ['id', 'phone', 'name', 'email', 'loyalty_points', 'total_spent', 'total_visits', 'created_at', 'notes']
 
     def validate_phone(self, value):
-        # Basic phone validation
-        if not re.match(r'^\+?1?\d{9,15}$', value):
-            raise serializers.ValidationError("Enter a valid phone number")
+        # Strip formatting chars, then check digit count
+        digits_only = re.sub(r'[\s\-\(\)\+]', '', value)
+        if not re.match(r'^\d{7,15}$', digits_only):
+            raise serializers.ValidationError("Enter a valid phone number (7–15 digits)")
         return value
 
     def validate_email(self, value):
@@ -367,3 +419,17 @@ class LoyaltySettingsSerializer(serializers.ModelSerializer):
         if value <= 0:
             raise serializers.ValidationError("Redemption rate must be positive")
         return value
+
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    changed_by_username = serializers.CharField(source='changed_by.username', read_only=True, allow_null=True)
+
+    class Meta:
+        model = AuditLog
+        fields = ['id', 'action', 'model_name', 'object_id', 'object_repr', 'changed_by_username', 'timestamp', 'changes']
+
+
+class StoreSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StoreSettings
+        fields = ['name', 'tagline', 'phone', 'address', 'email', 'receipt_footer']
