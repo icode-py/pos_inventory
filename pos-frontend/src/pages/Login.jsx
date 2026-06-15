@@ -4,7 +4,7 @@ import { AuthContext } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
   Box, TextField, Button, Typography,
-  InputAdornment, IconButton, Alert, CircularProgress,
+  InputAdornment, IconButton, Alert, CircularProgress, Chip,
 } from "@mui/material";
 import {
   Visibility, VisibilityOff,
@@ -13,15 +13,19 @@ import {
   Store as StoreIcon,
   PointOfSale as PosIcon,
   CheckCircleOutline as CheckIcon,
+  ShoppingCart as CartIcon,
+  Inventory as InventoryIcon,
+  TrendingUp as TrendingIcon,
+  Loyalty as LoyaltyIcon,
 } from "@mui/icons-material";
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 const FEATURES = [
-  "Fast and reliable sales processing",
-  "Real-time inventory management",
-  "Comprehensive sales analytics",
-  "Customer loyalty programs",
+  { icon: <CartIcon sx={{ fontSize: 16 }} />, label: "Fast sales processing" },
+  { icon: <InventoryIcon sx={{ fontSize: 16 }} />, label: "Inventory management" },
+  { icon: <TrendingIcon sx={{ fontSize: 16 }} />, label: "Sales analytics" },
+  { icon: <LoyaltyIcon sx={{ fontSize: 16 }} />, label: "Customer loyalty" },
 ];
 
 function Login() {
@@ -59,177 +63,170 @@ function Login() {
       sx={{
         minHeight: "100vh",
         width: "100%",
-        backgroundImage: `
-          linear-gradient(135deg, rgba(102,126,234,0.93) 0%, rgba(118,75,162,0.93) 100%),
-          url('https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=1920&q=80')
-        `,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        display: "flex",
-        alignItems: { xs: "flex-start", md: "center" },
-        justifyContent: "center",
-        p: { xs: 0, md: 3 },
         position: "relative",
-        overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        p: { xs: 0, sm: 3 },
+        // Background image with gradient overlay
+        '&::before': {
+          content: '""',
+          position: 'fixed',
+          inset: 0,
+          backgroundImage: `url('https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=1920&q=80')`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          zIndex: 0,
+        },
+        '&::after': {
+          content: '""',
+          position: 'fixed',
+          inset: 0,
+          background: 'linear-gradient(135deg, rgba(30,20,60,0.78) 0%, rgba(102,126,234,0.72) 50%, rgba(118,75,162,0.80) 100%)',
+          zIndex: 1,
+        },
       }}
     >
-      {/* Subtle decorative blobs — desktop only */}
-      <Box sx={{ display: { xs: 'none', md: 'block' }, position: "absolute", top: -80, right: -80, width: 300, height: 300, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.06)" }} />
-      <Box sx={{ display: { xs: 'none', md: 'block' }, position: "absolute", bottom: -60, left: -60, width: 240, height: 240, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.06)" }} />
+      {/* Floating particles for depth */}
+      <Box sx={{ position: 'fixed', top: '10%', left: '8%', width: 180, height: 180, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', zIndex: 2 }} />
+      <Box sx={{ position: 'fixed', bottom: '12%', right: '6%', width: 240, height: 240, borderRadius: '50%', background: 'rgba(255,255,255,0.03)', zIndex: 2 }} />
+      <Box sx={{ position: 'fixed', top: '50%', right: '20%', width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', zIndex: 2 }} />
 
       {/* Main card */}
       <Box
         sx={{
-          display: "flex",
-          flexDirection: { xs: "column", md: "row" },
-          alignItems: "stretch",
-          width: "100%",
-          maxWidth: { xs: "100%", md: 1060 },
-          minHeight: { xs: "100vh", md: 580 },
-          borderRadius: { xs: 0, md: 4 },
-          overflow: "hidden",
-          boxShadow: { xs: "none", md: "0 30px 70px rgba(0,0,0,0.4)" },
-          position: "relative",
-          zIndex: 1,
+          position: 'relative',
+          zIndex: 3,
+          width: '100%',
+          maxWidth: { xs: '100%', sm: 480 },
+          minHeight: { xs: '100vh', sm: 'auto' },
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'rgba(255,255,255,0.10)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          border: { xs: 'none', sm: '1px solid rgba(255,255,255,0.22)' },
+          borderRadius: { xs: 0, sm: 4 },
+          boxShadow: { xs: 'none', sm: '0 32px 80px rgba(0,0,0,0.45)' },
+          overflow: 'hidden',
         }}
       >
-        {/* ── Left panel: branding (hidden on mobile) ── */}
+        {/* Top branding strip */}
         <Box
           sx={{
-            display: { xs: "none", md: "flex" },
-            flex: "0 0 42%",
-            background: "rgba(255,255,255,0.10)",
-            backdropFilter: "blur(16px)",
-            borderRight: "1px solid rgba(255,255,255,0.15)",
-            color: "white",
-            p: 5,
-            flexDirection: "column",
-            justifyContent: "center",
-            gap: 3,
+            px: { xs: 4, sm: 5 },
+            pt: { xs: 6, sm: 5 },
+            pb: 3,
+            textAlign: 'center',
+            borderBottom: '1px solid rgba(255,255,255,0.12)',
           }}
         >
-          {/* Logo + store name */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-            <Box
-              sx={{
-                width: 58,
-                height: 58,
-                borderRadius: 2.5,
-                bgcolor: "rgba(255,255,255,0.18)",
-                border: "1px solid rgba(255,255,255,0.3)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <StoreIcon sx={{ fontSize: 32 }} />
-            </Box>
-            <Box>
-              <Typography variant="h4" fontWeight="800" lineHeight={1.1} letterSpacing={-0.5}>
-                {store.name}
-              </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.4 }}>
-                {store.tagline}
-              </Typography>
-            </Box>
-          </Box>
-
-          <Typography variant="body1" sx={{ opacity: 0.88, lineHeight: 1.8 }}>
-            Streamline your store operations with a powerful and intuitive point of sale solution.
-          </Typography>
-
-          {/* Feature list */}
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.6 }}>
-            {FEATURES.map(f => (
-              <Box key={f} sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                <CheckIcon sx={{ fontSize: 18, opacity: 0.85, flexShrink: 0 }} />
-                <Typography variant="body2" sx={{ opacity: 0.88 }}>{f}</Typography>
-              </Box>
-            ))}
-          </Box>
-
-          <Typography variant="caption" sx={{ opacity: 0.55, mt: "auto" }}>
-            © {new Date().getFullYear()} Holosoft Digital Solutions. All rights reserved.
-          </Typography>
-        </Box>
-
-        {/* ── Right panel: form ── */}
-        <Box
-          sx={{
-            flex: 1,
-            bgcolor: "white",
-            p: { xs: 4, sm: 5, md: 6 },
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            minHeight: { xs: "100vh", md: "auto" },
-          }}
-        >
-          {/* Mobile: small brand header */}
+          {/* Icon */}
           <Box
             sx={{
-              display: { xs: "flex", md: "none" },
-              alignItems: "center",
-              gap: 1.5,
-              mb: 4,
+              width: 68,
+              height: 68,
+              borderRadius: 3,
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              mx: 'auto',
+              mb: 2,
+              boxShadow: '0 12px 32px rgba(102,126,234,0.5)',
             }}
           >
-            <Box
-              sx={{
-                width: 40,
-                height: 40,
-                borderRadius: 2,
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <StoreIcon sx={{ fontSize: 22, color: "white" }} />
-            </Box>
-            <Box>
-              <Typography variant="subtitle1" fontWeight="bold" lineHeight={1.1}>
-                {store.name}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {store.tagline}
-              </Typography>
-            </Box>
+            <StoreIcon sx={{ fontSize: 36, color: 'white' }} />
           </Box>
 
-          {/* Form header */}
-          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", mb: 4 }}>
+          <Typography
+            variant="h4"
+            fontWeight="800"
+            sx={{
+              color: 'white',
+              letterSpacing: '-0.5px',
+              textShadow: '0 2px 12px rgba(0,0,0,0.3)',
+            }}
+          >
+            {store.name}
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.72)', mt: 0.5 }}>
+            {store.tagline}
+          </Typography>
+
+          {/* Feature chips */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center', mt: 2.5 }}>
+            {FEATURES.map(f => (
+              <Chip
+                key={f.label}
+                icon={f.icon}
+                label={f.label}
+                size="small"
+                sx={{
+                  bgcolor: 'rgba(255,255,255,0.12)',
+                  color: 'rgba(255,255,255,0.88)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  '& .MuiChip-icon': { color: 'rgba(255,255,255,0.7)' },
+                  fontSize: '0.72rem',
+                }}
+              />
+            ))}
+          </Box>
+        </Box>
+
+        {/* Form section */}
+        <Box
+          sx={{
+            px: { xs: 4, sm: 5 },
+            py: 4,
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+          }}
+        >
+          <Box sx={{ textAlign: 'center', mb: 3 }}>
             <Box
               sx={{
-                width: 58,
-                height: 58,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                mb: 2,
-                boxShadow: "0 8px 24px rgba(102,126,234,0.4)",
+                width: 46,
+                height: 46,
+                borderRadius: '50%',
+                bgcolor: 'rgba(255,255,255,0.15)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mx: 'auto',
+                mb: 1.5,
               }}
             >
-              <PosIcon sx={{ color: "white", fontSize: 28 }} />
+              <PosIcon sx={{ color: 'white', fontSize: 22 }} />
             </Box>
-            <Typography variant="h5" fontWeight="bold">
+            <Typography variant="h6" fontWeight="bold" sx={{ color: 'white' }}>
               Welcome Back
             </Typography>
-            <Typography variant="body2" color="text.secondary" mt={0.5} textAlign="center">
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.65)', mt: 0.3 }}>
               Sign in to access your dashboard
             </Typography>
           </Box>
 
           {error && (
-            <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+            <Alert
+              severity="error"
+              sx={{
+                mb: 2.5,
+                borderRadius: 2,
+                bgcolor: 'rgba(211,47,47,0.15)',
+                color: 'white',
+                border: '1px solid rgba(211,47,47,0.4)',
+                '& .MuiAlert-icon': { color: '#ff6b6b' },
+              }}
+            >
               {error}
             </Alert>
           )}
 
-          <Box component="form" onSubmit={handleSubmit} sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+          <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField
               label="Username"
               name="username"
@@ -242,11 +239,22 @@ function Login() {
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <PersonIcon color="primary" />
+                    <PersonIcon sx={{ color: 'rgba(255,255,255,0.6)' }} />
                   </InputAdornment>
                 ),
               }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  bgcolor: 'rgba(255,255,255,0.10)',
+                  color: 'white',
+                  '& fieldset': { borderColor: 'rgba(255,255,255,0.25)' },
+                  '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
+                  '&.Mui-focused fieldset': { borderColor: 'rgba(255,255,255,0.8)' },
+                },
+                '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.65)' },
+                '& .MuiInputLabel-root.Mui-focused': { color: 'white' },
+              }}
             />
 
             <TextField
@@ -261,18 +269,29 @@ function Login() {
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <LockIcon color="primary" />
+                    <LockIcon sx={{ color: 'rgba(255,255,255,0.6)' }} />
                   </InputAdornment>
                 ),
                 endAdornment: (
                   <InputAdornment position="end">
-                    <IconButton onClick={() => setShowPassword(p => !p)} edge="end">
+                    <IconButton onClick={() => setShowPassword(p => !p)} edge="end" sx={{ color: 'rgba(255,255,255,0.6)' }}>
                       {showPassword ? <VisibilityOff /> : <Visibility />}
                     </IconButton>
                   </InputAdornment>
                 ),
               }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  bgcolor: 'rgba(255,255,255,0.10)',
+                  color: 'white',
+                  '& fieldset': { borderColor: 'rgba(255,255,255,0.25)' },
+                  '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
+                  '&.Mui-focused fieldset': { borderColor: 'rgba(255,255,255,0.8)' },
+                },
+                '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.65)' },
+                '& .MuiInputLabel-root.Mui-focused': { color: 'white' },
+              }}
             />
 
             <Button
@@ -284,34 +303,38 @@ function Login() {
                 mt: 0.5,
                 py: 1.6,
                 borderRadius: 2,
-                fontSize: "1rem",
-                fontWeight: "bold",
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                boxShadow: "0 6px 20px rgba(102,126,234,0.45)",
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                boxShadow: '0 8px 24px rgba(102,126,234,0.5)',
+                border: '1px solid rgba(255,255,255,0.15)',
                 '&:hover': {
-                  background: "linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)",
-                  transform: "translateY(-1px)",
-                  boxShadow: "0 10px 28px rgba(102,126,234,0.5)",
+                  background: 'linear-gradient(135deg, #7b8ff5 0%, #8a5db8 100%)',
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 12px 32px rgba(102,126,234,0.6)',
                 },
-                transition: "all 0.2s ease",
+                '&:active': { transform: 'translateY(0px)' },
+                transition: 'all 0.2s ease',
               }}
             >
               {loading ? <CircularProgress size={24} color="inherit" /> : "Sign In"}
             </Button>
           </Box>
+        </Box>
 
-          <Typography variant="caption" color="text.disabled" textAlign="center" mt={4} display="block">
-            Secure POS System • Staff accounts are managed by your administrator
+        {/* Footer */}
+        <Box
+          sx={{
+            px: 4,
+            py: 2.5,
+            borderTop: '1px solid rgba(255,255,255,0.10)',
+            textAlign: 'center',
+          }}
+        >
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', display: 'block' }}>
+            Secure POS System • Staff accounts managed by administrator
           </Typography>
-
-          {/* Mobile copyright */}
-          <Typography
-            variant="caption"
-            color="text.disabled"
-            textAlign="center"
-            mt={1}
-            display={{ xs: "block", md: "none" }}
-          >
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)', display: 'block', mt: 0.3 }}>
             © {new Date().getFullYear()} Holosoft Digital Solutions
           </Typography>
         </Box>
