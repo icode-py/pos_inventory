@@ -194,13 +194,13 @@ const CustomersPage = () => {
   );
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+      <Box sx={{ mb: { xs: 2, md: 4 } }}>
+        <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main', fontSize: { xs: '1.2rem', md: '1.5rem' } }}>
           Customer Management
         </Typography>
-        <Typography variant="body1" color="textSecondary">
+        <Typography variant="body2" color="textSecondary">
           Manage your customers and loyalty program
         </Typography>
       </Box>

@@ -111,51 +111,48 @@ function Login() {
           overflow: 'hidden',
         }}
       >
-        {/* Top branding strip */}
+        {/* Top branding strip — compact row layout */}
         <Box
           sx={{
-            px: { xs: 4, sm: 5 },
-            pt: { xs: 6, sm: 5 },
-            pb: 3,
-            textAlign: 'center',
+            px: { xs: 3, sm: 4 },
+            pt: { xs: 3, sm: 3.5 },
+            pb: 2,
             borderBottom: '1px solid rgba(255,255,255,0.12)',
           }}
         >
-          {/* Icon */}
-          <Box
-            sx={{
-              width: 68,
-              height: 68,
-              borderRadius: 3,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              mx: 'auto',
-              mb: 2,
-              boxShadow: '0 12px 32px rgba(102,126,234,0.5)',
-            }}
-          >
-            <StoreIcon sx={{ fontSize: 36, color: 'white' }} />
+          {/* Icon + name in a row */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
+            <Box
+              sx={{
+                width: 48,
+                height: 48,
+                borderRadius: 2.5,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                boxShadow: '0 8px 20px rgba(102,126,234,0.5)',
+              }}
+            >
+              <StoreIcon sx={{ fontSize: 26, color: 'white' }} />
+            </Box>
+            <Box>
+              <Typography
+                variant="h6"
+                fontWeight="800"
+                sx={{ color: 'white', letterSpacing: '-0.3px', lineHeight: 1.2 }}
+              >
+                {store.name}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.68)' }}>
+                {store.tagline}
+              </Typography>
+            </Box>
           </Box>
 
-          <Typography
-            variant="h4"
-            fontWeight="800"
-            sx={{
-              color: 'white',
-              letterSpacing: '-0.5px',
-              textShadow: '0 2px 12px rgba(0,0,0,0.3)',
-            }}
-          >
-            {store.name}
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.72)', mt: 0.5 }}>
-            {store.tagline}
-          </Typography>
-
-          {/* Feature chips */}
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center', mt: 2.5 }}>
+          {/* Feature chips — single scrollable row */}
+          <Box sx={{ display: 'flex', gap: 0.8, flexWrap: 'wrap' }}>
             {FEATURES.map(f => (
               <Chip
                 key={f.label}
@@ -163,11 +160,12 @@ function Login() {
                 label={f.label}
                 size="small"
                 sx={{
-                  bgcolor: 'rgba(255,255,255,0.12)',
-                  color: 'rgba(255,255,255,0.88)',
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  '& .MuiChip-icon': { color: 'rgba(255,255,255,0.7)' },
-                  fontSize: '0.72rem',
+                  bgcolor: 'rgba(255,255,255,0.11)',
+                  color: 'rgba(255,255,255,0.85)',
+                  border: '1px solid rgba(255,255,255,0.18)',
+                  '& .MuiChip-icon': { color: 'rgba(255,255,255,0.65)' },
+                  fontSize: '0.68rem',
+                  height: 24,
                 }}
               />
             ))}

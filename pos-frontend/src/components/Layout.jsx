@@ -269,7 +269,7 @@ const Layout = ({ children }) => {
       {/* Today's Performance Footer - Real-time Updates */}
       <Box sx={{
         p: 2,
-        background: 'linear-gradient(135deg, #2c3e50 0%, #3498db 100%)',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         color: 'white',
         borderTop: '1px solid rgba(255,255,255,0.1)',
         flexShrink: 0,
@@ -557,7 +557,7 @@ const Layout = ({ children }) => {
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
+          p: { xs: 1, sm: 2, md: 3 },
           width: { md: `calc(100% - ${drawerWidth}px)` },
           minHeight: '100vh',
           background: mode === 'dark' ? '#0f1117' : 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'
@@ -566,10 +566,10 @@ const Layout = ({ children }) => {
         <Toolbar sx={{ minHeight: '70px !important' }} />
         <Box sx={{
           bgcolor: 'background.paper',
-          borderRadius: 3,
+          borderRadius: { xs: 2, md: 3 },
           boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
           minHeight: 'calc(100vh - 100px)',
-          overflow: 'hidden',
+          overflow: 'auto',
           border: '1px solid',
           borderColor: 'divider'
         }}>
