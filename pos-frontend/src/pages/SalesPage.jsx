@@ -827,22 +827,22 @@ const SalesPage = () => {
   );
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Grid container spacing={3}>
+    <Box sx={{ p: { xs: 1.5, md: 3 } }}>
+      <Grid container spacing={{ xs: 1.5, md: 3 }}>
         {/* Header with Connection Status */}
         <Grid item xs={12}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, flexWrap: 'wrap', gap: 1 }}>
             <Box>
-              <Typography variant="h4" component="h1" fontWeight="bold">
+              <Typography variant="h5" component="h1" fontWeight="bold" sx={{ fontSize: { xs: '1.2rem', md: '1.5rem' } }}>
                 Point of Sale
               </Typography>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
                 Last refreshed: {lastRefresh.toLocaleTimeString()}
                 {cart.length > 0 && ` • Session saved: ${cart.length} items`}
                 {selectedCustomer && ` • Customer: ${selectedCustomer.name}`}
               </Typography>
             </Box>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
               {/* Connection Status */}
               <Tooltip title={isOnline ? "Online - Connected to server" : "Offline - Working locally"}>
                 <Chip

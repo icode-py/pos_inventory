@@ -88,13 +88,13 @@ const loadRestockHistory = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+    <Container maxWidth="lg" sx={{ mt: { xs: 2, md: 4 }, mb: 4, px: { xs: 1.5, md: 3 } }}>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+      <Box sx={{ mb: { xs: 2, md: 4 } }}>
+        <Typography variant="h5" component="h1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary', fontSize: { xs: '1.2rem', md: '1.5rem' } }}>
           Restock Product
         </Typography>
-        <Typography variant="subtitle1" sx={{ color: 'text.secondary' }}>
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
           Add stock to existing products in your inventory
         </Typography>
       </Box>

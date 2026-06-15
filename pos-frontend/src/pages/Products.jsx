@@ -292,13 +292,13 @@ function ProductsPage() {
   );
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+    <Container maxWidth="xl" sx={{ mt: { xs: 2, md: 4 }, mb: 4, px: { xs: 1, md: 3 } }}>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+      <Box sx={{ mb: { xs: 2, md: 4 } }}>
+        <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main', fontSize: { xs: '1.2rem', md: '1.5rem' } }}>
           Inventory Management
         </Typography>
-        <Typography variant="body1" color="textSecondary">
+        <Typography variant="body2" color="textSecondary">
           Manage your products, track stock levels, and monitor inventory health
         </Typography>
       </Box>

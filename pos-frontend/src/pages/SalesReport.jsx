@@ -813,9 +813,9 @@ const SalesReport = () => {
   };
 
   return (
-    <Box p={3}>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" gutterBottom>
+    <Box p={{ xs: 2, md: 3 }}>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3} flexWrap="wrap" gap={1}>
+        <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', fontSize: { xs: '1.2rem', md: '1.5rem' }, mb: 0 }}>
           Sales Analytics & Reports
         </Typography>
         <Tooltip title="Refresh Data">
