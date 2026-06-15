@@ -47,14 +47,19 @@ const CustomerQuickAddModal = ({ open, onClose, onCustomerCreated }) => {
     setError('');
 
     try {
-      const response = await axiosInstance.post('/customers/', formData);
+      const payload = {
+        ...formData,
+        email: formData.email || undefined,
+        notes: formData.notes || undefined,
+      };
+      const response = await axiosInstance.post('/customers/', payload);
       onCustomerCreated(response.data);
-      // Reset form
       setFormData({ phone: '', name: '', email: '', notes: '' });
     } catch (error) {
-      console.error('Failed to create customer:', error);
-      if (error.response?.data?.phone) {
-        setError('A customer with this phone number already exists');
+      const data = error.response?.data;
+      if (data) {
+        const msg = Object.entries(data).map(([k, v]) => `${k}: ${[].concat(v).join(', ')}`).join(' | ');
+        setError(msg);
       } else {
         setError('Failed to create customer. Please try again.');
       }

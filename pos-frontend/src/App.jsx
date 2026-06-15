@@ -1,4 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AppThemeProvider } from './context/ThemeContext';
+import { StoreProvider } from './context/StoreContext';
 import AuthProvider from './context/AuthContext';
 import { OfflineProvider } from './context/OfflineManager';
 import SyncManager from './components/SyncManager';
@@ -14,9 +16,14 @@ import SalesReport from './pages/SalesReport';
 import CustomersPage from './pages/CustormersPage';
 import CustomerProfile from './pages/CustomerProfile';
 import BulkDiscountManager from './components/BulkDiscountManager';
+import AuditLogPage from './pages/AuditLogPage';
+import SettingsPage from './pages/SettingsPage';
+import StaffPage from './pages/StaffPage';
 
 function App() {
   return (
+    <AppThemeProvider>
+    <StoreProvider>
     <OfflineProvider>
       <Router>
         <AuthProvider>
@@ -62,10 +69,10 @@ function App() {
               </ProtectedRoute>
             } />
             
-            {/* Restock - Accessible to Manager,Admin and cashier */}
+            {/* Restock - Manager and Admin only (prevents cashier stock fraud) */}
             <Route path="/restock" element={
               <ProtectedRoute>
-                <RoleProtectedRoute allowedRoles={['manager', 'admin','cashier']}>
+                <RoleProtectedRoute allowedRoles={['manager', 'admin']}>
                   <Layout>
                     <RestockPage />
                   </Layout>
@@ -106,16 +113,46 @@ function App() {
               </ProtectedRoute>
             } />
 
-            <Route 
-                path="/bulk-discounts" 
+            <Route
+                path="/bulk-discounts"
                 element={
                   <RoleProtectedRoute allowedRoles={['manager', 'admin']}>
                     <Layout>
                       <BulkDiscountManager />
                     </Layout>
                   </RoleProtectedRoute>
-                } 
+                }
             />
+
+            <Route path="/audit-log" element={
+              <ProtectedRoute>
+                <RoleProtectedRoute allowedRoles={['manager', 'admin']}>
+                  <Layout>
+                    <AuditLogPage />
+                  </Layout>
+                </RoleProtectedRoute>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/staff" element={
+              <ProtectedRoute>
+                <RoleProtectedRoute allowedRoles={['manager', 'admin']}>
+                  <Layout>
+                    <StaffPage />
+                  </Layout>
+                </RoleProtectedRoute>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/settings" element={
+              <ProtectedRoute>
+                <RoleProtectedRoute allowedRoles={['manager', 'admin']}>
+                  <Layout>
+                    <SettingsPage />
+                  </Layout>
+                </RoleProtectedRoute>
+              </ProtectedRoute>
+            } />
 
             {/* Redirect unknown routes to dashboard */}
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
@@ -124,6 +161,8 @@ function App() {
         <SyncManager />
       </Router>
     </OfflineProvider>
+    </StoreProvider>
+    </AppThemeProvider>
   );
 }
 

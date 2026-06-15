@@ -12,8 +12,8 @@ class Category(models.Model):
 class Product(models.Model):
     name = models.CharField(max_length=200)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    cost_price = models.DecimalField(max_digits=10, decimal_places=2)
+    price = models.DecimalField(max_digits=15, decimal_places=2)
+    cost_price = models.DecimalField(max_digits=15, decimal_places=2)
     stock = models.PositiveIntegerField()
     barcode = models.CharField(max_length=100, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -21,7 +21,7 @@ class Product(models.Model):
     # NEW: Bulk pricing fields
     is_bulk_product = models.BooleanField(default=False)
     bulk_quantity = models.PositiveIntegerField(default=1, help_text="Number of units in a bulk pack")
-    bulk_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, help_text="Price for the entire bulk pack")
+    bulk_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True, help_text="Price for the entire bulk pack")
     unit_of_measure = models.CharField(max_length=20, default='units', help_text="e.g., pieces, kg, liters, packs")
     
     def __str__(self):
@@ -45,9 +45,9 @@ class Product(models.Model):
 class SaleTransaction(models.Model):
     cashier = models.ForeignKey('Staff', on_delete=models.SET_NULL, null=True)
     customer = models.ForeignKey('Customer', on_delete=models.SET_NULL, null=True, blank=True)
-    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
-    paid_amount = models.DecimalField(max_digits=12, decimal_places=2)
-    change_given = models.DecimalField(max_digits=12, decimal_places=2)
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2)
+    paid_amount = models.DecimalField(max_digits=15, decimal_places=2)
+    change_given = models.DecimalField(max_digits=15, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -149,7 +149,7 @@ class BulkDiscount(models.Model):
         """Calculate discount amount based on type"""
         if quantity < self.minimum_quantity:
             return 0
-            
+
         if self.discount_type == 'percentage':
             return (unit_price * quantity) * (self.discount_value / 100)
         elif self.discount_type == 'fixed':
@@ -159,3 +159,45 @@ class BulkDiscount(models.Model):
             bundles = quantity // self.minimum_quantity
             return bundles * self.discount_value * unit_price
         return 0
+
+
+class AuditLog(models.Model):
+    ACTION_CHOICES = [
+        ('CREATE', 'Create'),
+        ('UPDATE', 'Update'),
+        ('DELETE', 'Delete'),
+    ]
+    action = models.CharField(max_length=10, choices=ACTION_CHOICES)
+    model_name = models.CharField(max_length=50)
+    object_id = models.CharField(max_length=50)
+    object_repr = models.CharField(max_length=200)
+    changed_by = models.ForeignKey('Staff', on_delete=models.SET_NULL, null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    changes = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.action} {self.model_name} #{self.object_id} by {self.changed_by}"
+
+
+class StoreSettings(models.Model):
+    name            = models.CharField(max_length=100, default='My Store')
+    tagline         = models.CharField(max_length=200, blank=True, default='Modern Point of Sale')
+    phone           = models.CharField(max_length=20,  blank=True)
+    address         = models.CharField(max_length=200, blank=True)
+    email           = models.EmailField(blank=True)
+    receipt_footer  = models.CharField(max_length=200, blank=True, default='Thank you for your business!')
+
+    class Meta:
+        verbose_name_plural = 'Store Settings'
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def load(cls):
+        """Always returns the single settings record, creating it if needed."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

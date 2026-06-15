@@ -2,7 +2,7 @@ import {
   Grid, TextField, MenuItem, Typography, Button, Paper, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar,
   Card, CardContent, Box, Chip, IconButton, Divider, Alert, Tooltip,
-  Dialog, DialogTitle, DialogContent, DialogActions, Badge
+  Dialog, DialogTitle, DialogContent, DialogActions, Badge, Autocomplete
 } from "@mui/material";
 import MuiAlert from "@mui/material/Alert";
 import { useEffect, useState, useRef } from "react";
@@ -32,10 +32,26 @@ import Receipt from "../components/Receipt";
 import CustomerLookupModal from '../components/CustomerLookupModal';
 import CustomerQuickAddModal from '../components/CustomerQuickAddModal';
 import { useOffline } from '../context/OfflineManager';
+import { useStore } from '../context/StoreContext';
+
+// Currency formatting helper function
+const formatCurrency = (amount) => {
+  if (amount === null || amount === undefined || isNaN(amount)) {
+    return '₦0.00';
+  }
+
+  // Convert to number if it's a string
+  const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+
+  // Format with commas for thousands and two decimal places
+  return `₦${numAmount.toLocaleString('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+};
 
 const SalesPage = () => {
   const [products, setProducts] = useState([]);
-  const [selectedProductId, setSelectedProductId] = useState("");
   const [barcodeInput, setBarcodeInput] = useState("");
   const [cart, setCart] = useState([]);
   const [paidAmount, setPaidAmount] = useState("");
@@ -58,12 +74,13 @@ const SalesPage = () => {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
 
   // Offline functionality
-  const { 
-    isOnline, 
-    pendingSales, 
-    saveOfflineSale, 
-    syncPendingSales 
+  const {
+    isOnline,
+    pendingSales,
+    saveOfflineSale,
+    syncPendingSales
   } = useOffline();
+  const { store } = useStore();
 
   const receiptRef = useRef();
   const barcodeRef = useRef();
@@ -79,7 +96,7 @@ const SalesPage = () => {
   // Helper function for discount calculation - FIXED: Made standalone
   const calculateDiscountAmount = (discount, quantity, unitPrice) => {
     if (!discount) return 0;
-    
+
     switch (discount.discount_type) {
       case 'percentage':
         return (unitPrice * quantity) * (parseFloat(discount.discount_value) / 100);
@@ -96,28 +113,28 @@ const SalesPage = () => {
   // Bulk Pricing Calculation - FIXED: Removed 'this.' references
   const calculateItemPrice = (product, quantity) => {
     const unitPrice = parseFloat(product.price) || 0;
-    
+
     // First apply bulk product pricing if applicable
     let totalPrice = 0;
-    
+
     if (product.is_bulk_product && product.bulk_quantity > 1 && product.bulk_price) {
       const bulkQuantity = parseInt(product.bulk_quantity) || 1;
       const bulkPrice = parseFloat(product.bulk_price) || 0;
-      
+
       const bulkPacks = Math.floor(quantity / bulkQuantity);
       const remainingUnits = quantity % bulkQuantity;
-      
+
       totalPrice = (bulkPacks * bulkPrice) + (remainingUnits * unitPrice);
     } else {
       // Regular pricing
       totalPrice = unitPrice * quantity;
     }
-    
+
     // Then apply bulk discounts if available
     if (product.bulk_discounts && product.bulk_discounts.length > 0) {
       const activeDiscounts = product.bulk_discounts.filter(discount => {
         if (!discount.is_active) return false;
-        
+
         // Check if discount is within date range
         const now = new Date();
         const startDate = new Date(discount.start_date);
@@ -127,24 +144,24 @@ const SalesPage = () => {
         }
         return now >= startDate;
       });
-      
+
       // Find the best applicable discount
-      const applicableDiscounts = activeDiscounts.filter(discount => 
+      const applicableDiscounts = activeDiscounts.filter(discount =>
         quantity >= discount.minimum_quantity
       );
-      
+
       if (applicableDiscounts.length > 0) {
         const bestDiscount = applicableDiscounts.reduce((best, current) => {
           const currentValue = calculateDiscountAmount(current, quantity, unitPrice);
           const bestValue = calculateDiscountAmount(best, quantity, unitPrice);
           return currentValue > bestValue ? current : best;
         });
-        
+
         const discountAmount = calculateDiscountAmount(bestDiscount, quantity, unitPrice);
         totalPrice -= discountAmount;
       }
     }
-    
+
     return Math.max(0, totalPrice); // Ensure price doesn't go negative
   };
 
@@ -164,7 +181,7 @@ const SalesPage = () => {
           bulk_price: product.bulk_price ? (typeof product.bulk_price === 'string' ? parseFloat(product.bulk_price) : product.bulk_price) : null
         }));
         setProducts(productsWithNumericPrices);
-        
+
         if (!isOnline) {
           showSnackbar("Using cached products (offline mode)", "info");
           return;
@@ -185,13 +202,13 @@ const SalesPage = () => {
           price: typeof product.price === 'string' ? parseFloat(product.price) : product.price,
           bulk_price: product.bulk_price ? (typeof product.bulk_price === 'string' ? parseFloat(product.bulk_price) : product.bulk_price) : null
         }));
-        
+
         setProducts(productsWithNumericPrices);
-        
+
         // Cache the products
         localStorage.setItem('holo_cached_products', JSON.stringify(response.data));
         localStorage.setItem('holo_products_timestamp', Date.now().toString());
-        
+
         setLastRefresh(new Date());
       } catch (err) {
         console.error("Failed to load products from API", err);
@@ -229,7 +246,7 @@ const SalesPage = () => {
   // Load products and cart on component mount
   useEffect(() => {
     loadProducts();
-    
+
     // Load saved cart from session
     const savedCart = localStorage.getItem('pos-cart');
     if (savedCart) {
@@ -263,7 +280,7 @@ const SalesPage = () => {
   useEffect(() => {
     const total = calculateTotal();
     setChangeAmount(parseFloat(paidAmount) - total || 0);
-    
+
     // Generate suggested amounts
     const suggestions = [];
     if (total > 0) {
@@ -321,7 +338,7 @@ const SalesPage = () => {
     setSelectedProductId("");
     setBarcodeInput("");
     showSnackbar(`Added ${product.name} to cart`, "success");
-    
+
     // Refocus barcode input after adding product
     if (scannerActive) {
       setTimeout(() => barcodeRef.current?.focus(), 100);
@@ -330,10 +347,10 @@ const SalesPage = () => {
 
   const handleBarcodeEnter = (e) => {
     if (e.key === "Enter" && barcodeInput.trim()) {
-      const product = products.find(p => 
+      const product = products.find(p =>
         p.barcode?.toString().toLowerCase() === barcodeInput.trim().toLowerCase()
       );
-      product 
+      product
         ? handleAddProduct(product)
         : showSnackbar("Product not found", "error");
       setBarcodeInput("");
@@ -352,7 +369,7 @@ const SalesPage = () => {
       // Ctrl/Cmd + Key combinations
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
-        switch(e.key) {
+        switch (e.key) {
           case 'Enter':
             if (cart.length > 0 && paidAmount && parseFloat(paidAmount) >= calculateTotal()) {
               handleCompleteSale();
@@ -377,9 +394,9 @@ const SalesPage = () => {
             break;
         }
       }
-      
+
       // Function keys
-      switch(e.key) {
+      switch (e.key) {
         case 'F1':
           e.preventDefault();
           setShowShortcutsDialog(true);
@@ -405,11 +422,6 @@ const SalesPage = () => {
     document.addEventListener('keydown', handleKeyPress);
     return () => document.removeEventListener('keydown', handleKeyPress);
   }, [cart, paidAmount]);
-
-  const handleDropdownChange = (e) => {
-    const product = products.find(p => p.id === parseInt(e.target.value));
-    if (product) handleAddProduct(product);
-  };
 
   const handleQuantityChange = (productId, newQty) => {
     const qty = Math.max(1, parseInt(newQty) || 1);
@@ -496,30 +508,30 @@ const SalesPage = () => {
     // OFFLINE MODE: Save sale locally if offline
     if (!isOnline) {
       const offlineId = saveOfflineSale(saleData);
-      
+
       const saleWithDetails = {
-          total_amount: total,
-          paid_amount: parseFloat(paidAmount),
-          change_given: changeAmount,
-          items: cart.map(item => ({
-            product: {
-              ...item.product,
-              price: typeof item.product.price === 'string' 
-                ? parseFloat(item.product.price) 
-                : item.product.price,
-              name: item.product.name
-            },
-            quantity: item.quantity,
-            price_at_sale: calculateItemPrice(item.product, item.quantity) / item.quantity
-          })),
-          timestamp: new Date().toLocaleString(),
-          customer: selectedCustomer ? {
-            ...selectedCustomer,
-            loyalty_points: parseInt(selectedCustomer.loyalty_points) || 0
-          } : null,
-          isOffline: true,
-          offline_id: offlineId
-        };
+        total_amount: total,
+        paid_amount: parseFloat(paidAmount),
+        change_given: changeAmount,
+        items: cart.map(item => ({
+          product: {
+            ...item.product,
+            price: typeof item.product.price === 'string'
+              ? parseFloat(item.product.price)
+              : item.product.price,
+            name: item.product.name
+          },
+          quantity: item.quantity,
+          price_at_sale: calculateItemPrice(item.product, item.quantity) / item.quantity
+        })),
+        timestamp: new Date().toLocaleString(),
+        customer: selectedCustomer ? {
+          ...selectedCustomer,
+          loyalty_points: parseInt(selectedCustomer.loyalty_points) || 0
+        } : null,
+        isOffline: true,
+        offline_id: offlineId
+      };
 
       setLastSale(saleWithDetails);
       showSnackbar("✅ Sale saved offline! Connect to internet to sync.", "success");
@@ -529,7 +541,7 @@ const SalesPage = () => {
         if (receiptRef.current) {
           handlePrint();
         }
-        
+
         // Reset form
         setCart([]);
         setPaidAmount("");
@@ -538,14 +550,14 @@ const SalesPage = () => {
         localStorage.removeItem('pos-cart');
         if (scannerActive) barcodeRef.current?.focus();
       }, 500);
-      
+
       return;
     }
 
     // ONLINE MODE: Process sale normally
     try {
       await axiosInstance.post('/sales/', saleData);
-      
+
       const saleWithDetails = {
         total_amount: total,
         paid_amount: parseFloat(paidAmount),
@@ -553,8 +565,8 @@ const SalesPage = () => {
         items: cart.map(item => ({
           product: {
             ...item.product,
-            price: typeof item.product.price === 'string' 
-              ? parseFloat(item.product.price) 
+            price: typeof item.product.price === 'string'
+              ? parseFloat(item.product.price)
               : item.product.price,
             name: item.product.name
           },
@@ -581,7 +593,7 @@ const SalesPage = () => {
         if (receiptRef.current) {
           handlePrint();
         }
-        
+
         // Reset form
         setCart([]);
         setPaidAmount("");
@@ -589,15 +601,15 @@ const SalesPage = () => {
         setSelectedCustomer(null);
         if (scannerActive) barcodeRef.current?.focus();
       }, 500);
-      
+
     } catch (err) {
       console.error("Sale failed:", err);
-      
+
       // If online sale fails, save offline as fallback
       if (err.message === "Network Error" || !err.response) {
         const offlineId = saveOfflineSale(saleData);
         showSnackbar("🌐 Network error - sale saved offline", "warning");
-        
+
         const saleWithDetails = {
           ...saleData,
           offline_id: offlineId,
@@ -611,7 +623,7 @@ const SalesPage = () => {
         };
 
         setLastSale(saleWithDetails);
-        
+
         setTimeout(() => {
           if (receiptRef.current) {
             handlePrint();
@@ -662,20 +674,16 @@ const SalesPage = () => {
     loadProducts();
   };
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.barcode?.toString().includes(searchTerm)
-  );
 
   const totalAmount = calculateTotal();
 
-// 🔥 Cart Item Component with Bulk Pricing - Enhanced with discount display
-const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
+  // 🔥 Cart Item Component with Bulk Pricing - Enhanced with discount display
+  const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
     const product = item.product;
     const totalPrice = calculateItemPrice(product, item.quantity);
     const unitPrice = parseFloat(product.price) || 0;
     const regularPrice = unitPrice * item.quantity;
-    
+
     // Check if any discount is applied
     const hasDiscount = totalPrice < regularPrice;
     const discountAmount = regularPrice - totalPrice;
@@ -687,10 +695,10 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
             <Typography variant="body2" fontWeight="medium">
               {product.name}
               {product.is_bulk_product && (
-                <Chip 
-                  label="BULK" 
-                  size="small" 
-                  color="primary" 
+                <Chip
+                  label="BULK"
+                  size="small"
+                  color="primary"
                   variant="outlined"
                   sx={{ ml: 1 }}
                 />
@@ -698,7 +706,7 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
             </Typography>
             {product.is_bulk_product && product.bulk_quantity > 1 && (
               <Typography variant="caption" color="textSecondary">
-                {product.bulk_quantity} {product.unit_of_measure || 'units'} for ₦{product.bulk_price}
+                {product.bulk_quantity} {product.unit_of_measure || 'units'} for {formatCurrency(product.bulk_price)}
               </Typography>
             )}
           </Box>
@@ -706,19 +714,22 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
         <TableCell>
           <Box>
             <Typography variant="body2">
-              {product.is_bulk_product ? `₦${(product.unit_price || unitPrice).toFixed(2)}/unit` : `₦${unitPrice.toFixed(2)}`}
+              {product.is_bulk_product ?
+                `${formatCurrency(product.unit_price || unitPrice)}/unit` :
+                formatCurrency(unitPrice)
+              }
             </Typography>
             {product.is_bulk_product && product.bulk_price && (
               <Typography variant="caption" color="primary.main">
-                (₦{product.bulk_price} per {product.bulk_quantity})
+                ({formatCurrency(product.bulk_price)} per {product.bulk_quantity})
               </Typography>
             )}
           </Box>
         </TableCell>
         <TableCell>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <IconButton 
-              size="small" 
+            <IconButton
+              size="small"
               onClick={() => decrementQuantity(product.id)}
               disabled={item.quantity <= 1}
             >
@@ -727,8 +738,8 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
             <Typography variant="body2" sx={{ minWidth: 20, textAlign: 'center' }}>
               {item.quantity}
             </Typography>
-            <IconButton 
-              size="small" 
+            <IconButton
+              size="small"
               onClick={() => incrementQuantity(product.id)}
             >
               <AddIcon fontSize="small" />
@@ -738,16 +749,16 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
         <TableCell>
           <Box>
             <Typography variant="body2" fontWeight="bold">
-              ₦{totalPrice.toFixed(2)}
+              {formatCurrency(totalPrice)}
             </Typography>
             {hasDiscount && (
               <Box>
                 <Typography variant="caption" color="success.main">
                   <DiscountIcon fontSize="small" sx={{ fontSize: 12, mr: 0.5 }} />
-                  Discount: -₦{discountAmount.toFixed(2)}
+                  Discount: -{formatCurrency(discountAmount)}
                 </Typography>
                 <Typography variant="caption" color="textSecondary" display="block">
-                  (Was: ₦{regularPrice.toFixed(2)})
+                  (Was: {formatCurrency(regularPrice)})
                 </Typography>
               </Box>
             )}
@@ -802,8 +813,8 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
             <Divider sx={{ my: 1 }} />
             <Typography variant="subtitle2" gutterBottom>Bulk Pricing Features</Typography>
             <Typography variant="body2">
-              • Automatic bulk pricing for products marked as bulk<br/>
-              • Bulk discounts applied when quantity thresholds are met<br/>
+              • Automatic bulk pricing for products marked as bulk<br />
+              • Bulk discounts applied when quantity thresholds are met<br />
               • Clear labeling for bulk products in cart
             </Typography>
           </Grid>
@@ -856,9 +867,9 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
               {/* Sync Button */}
               {pendingSales.length > 0 && (
                 <Tooltip title={`Sync ${pendingSales.length} offline sales`}>
-                  <Button 
-                    variant="outlined" 
-                    color="warning" 
+                  <Button
+                    variant="outlined"
+                    color="warning"
                     onClick={handleManualSync}
                     startIcon={<CloudUploadIcon />}
                     size="small"
@@ -895,7 +906,7 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
                 </Tooltip>
               )}
 
-              <Chip 
+              <Chip
                 icon={<QrCodeScannerIcon />}
                 label={scannerActive ? "Scanner Active" : "Scanner Inactive"}
                 color={scannerActive ? "success" : "default"}
@@ -907,8 +918,8 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
 
           {/* Offline Warning Banner */}
           {!isOnline && (
-            <Alert 
-              severity="warning" 
+            <Alert
+              severity="warning"
               sx={{ mb: 2 }}
               action={
                 <Button color="inherit" size="small" onClick={handleManualSync}>
@@ -934,25 +945,25 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
                   </Typography>
                   <Box sx={{ display: 'flex', gap: 1 }}>
                     <Tooltip title="Focus barcode (Ctrl+F)">
-                      <Chip 
-                        icon={<QrCodeScannerIcon />} 
-                        label="Focus" 
-                        size="small" 
+                      <Chip
+                        icon={<QrCodeScannerIcon />}
+                        label="Focus"
+                        size="small"
                         onClick={() => barcodeRef.current?.focus()}
                         variant="outlined"
                       />
                     </Tooltip>
                     {!isOnline && (
-                      <Chip 
-                        label="Cached" 
-                        size="small" 
+                      <Chip
+                        label="Cached"
+                        size="small"
                         color="warning"
                         variant="outlined"
                       />
                     )}
                   </Box>
                 </Box>
-                
+
                 <TextField
                   inputRef={barcodeRef}
                   label="Scan Barcode"
@@ -968,15 +979,70 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
                   }}
                 />
 
-                <TextField
-                  label="Search Products"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  fullWidth
-                  sx={{ mb: 2 }}
-                  InputProps={{
-                    startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                <Autocomplete
+                  options={products}
+                  getOptionLabel={(p) => p.name}
+                  filterOptions={(options, { inputValue }) =>
+                    options.filter(p =>
+                      p.name.toLowerCase().includes(inputValue.toLowerCase()) ||
+                      p.barcode?.toString().includes(inputValue)
+                    )
+                  }
+                  inputValue={searchTerm}
+                  onInputChange={(_, val) => setSearchTerm(val)}
+                  value={null}
+                  onChange={(_, product) => {
+                    if (product) {
+                      handleAddProduct(product);
+                      setSearchTerm("");
+                    }
                   }}
+                  clearOnBlur={false}
+                  blurOnSelect
+                  sx={{ mb: 2 }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Search & Add Product"
+                      InputProps={{
+                        ...params.InputProps,
+                        startAdornment: (
+                          <>
+                            <SearchIcon sx={{ mr: 0.5, color: 'text.secondary' }} />
+                            {params.InputProps.startAdornment}
+                          </>
+                        ),
+                      }}
+                    />
+                  )}
+                  renderOption={(props, product) => (
+                    <Box component="li" {...props} key={product.id}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                        <Box>
+                          <Typography variant="body2" fontWeight="medium">
+                            {product.name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {product.barcode}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ textAlign: 'right', ml: 2 }}>
+                          {product.is_bulk_product && (
+                            <Chip label="BULK" size="small" color="primary" sx={{ mb: 0.5, display: 'block' }} />
+                          )}
+                          <Typography variant="caption" fontWeight="bold" color="primary.main">
+                            {product.is_bulk_product
+                              ? `${formatCurrency(product.bulk_price)}/${product.bulk_quantity}`
+                              : formatCurrency(product.price)}
+                          </Typography>
+                          <Typography variant="caption" display="block" color={product.stock <= 5 ? 'error.main' : 'text.secondary'}>
+                            Stock: {product.stock}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Box>
+                  )}
+                  noOptionsText="No products found"
                 />
 
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>
@@ -985,9 +1051,9 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
                 <Grid container spacing={1} sx={{ mb: 3 }}>
                   {quickProducts.map(product => (
                     <Grid item xs={6} key={product.id}>
-                      <Card 
+                      <Card
                         variant="outlined"
-                        sx={{ 
+                        sx={{
                           cursor: 'pointer',
                           '&:hover': { bgcolor: 'action.hover' },
                           textAlign: 'center',
@@ -998,10 +1064,10 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
                         <Typography variant="body2" noWrap title={product.name}>
                           {product.name}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {product.is_bulk_product ? 
-                            `₦${product.bulk_price}/${product.bulk_quantity}` : 
-                            `₦${product.price.toFixed(2)}`
+                        <Typography variant="caption" color="textSecondary">
+                          {product.is_bulk_product ?
+                            `${formatCurrency(product.bulk_price)}/${product.bulk_quantity}` :
+                            formatCurrency(product.price)
                           }
                         </Typography>
                         {product.is_bulk_product && (
@@ -1009,41 +1075,13 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
                             Bulk
                           </Typography>
                         )}
-                        <Typography variant="caption" display="block" color="text.secondary">
+                        <Typography variant="caption" display="block" color="textSecondary">
                           Stock: {product.stock}
                         </Typography>
                       </Card>
                     </Grid>
                   ))}
                 </Grid>
-
-                <TextField
-                  select
-                  label="Select Product"
-                  value={selectedProductId}
-                  onChange={handleDropdownChange}
-                  fullWidth
-                >
-                  <MenuItem value="">-- Select Product --</MenuItem>
-                  {filteredProducts.map(product => (
-                    <MenuItem key={product.id} value={product.id}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                        <Box>
-                          <span>{product.name}</span>
-                          {product.is_bulk_product && (
-                            <Chip label="BULK" size="small" color="primary" sx={{ ml: 1 }} />
-                          )}
-                        </Box>
-                        <span style={{ color: 'text.secondary' }}>
-                          {product.is_bulk_product ? 
-                            `₦${product.bulk_price}/${product.bulk_quantity}` : 
-                            `₦${product.price.toFixed(2)}`
-                          } | Stock: {product.stock}
-                        </span>
-                      </Box>
-                    </MenuItem>
-                  ))}
-                </TextField>
               </CardContent>
             </Card>
           </Grid>
@@ -1077,8 +1115,8 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
                     </TableHead>
                     <TableBody>
                       {cart.map(item => (
-                        <CartItemRow 
-                          key={item.product.id} 
+                        <CartItemRow
+                          key={item.product.id}
                           item={item}
                           onQuantityChange={handleQuantityChange}
                           onRemove={(productId) => setCart(prev => prev.filter(i => i.product.id !== productId))}
@@ -1094,11 +1132,11 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
                     </Typography>
                   </Box>
                 )}
-                
+
                 {cart.length > 0 && (
                   <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                     <Typography variant="h6" textAlign="center" color="primary">
-                      Cart Total: ₦{totalAmount.toFixed(2)}
+                      Cart Total: {formatCurrency(totalAmount)}
                     </Typography>
                   </Box>
                 )}
@@ -1114,10 +1152,10 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
               <Typography variant="h6" gutterBottom>
                 Payment Summary
               </Typography>
-              
+
               <Box sx={{ mb: 3 }}>
                 <Typography variant="h4" color="primary" fontWeight="bold" textAlign="center">
-                  ₦{totalAmount.toFixed(2)}
+                  {formatCurrency(totalAmount)}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" textAlign="center">
                   Total Amount
@@ -1149,8 +1187,8 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
                             </Typography>
                           </Box>
                         </Box>
-                        <IconButton 
-                          size="small" 
+                        <IconButton
+                          size="small"
                           onClick={handleRemoveCustomer}
                           sx={{ color: 'white' }}
                         >
@@ -1185,14 +1223,14 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
 
               {totalAmount > 0 && (
                 <Box sx={{ mb: 2 }}>
-                  <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                  <Typography variant="caption" color="textSecondary" display="block" gutterBottom>
                     Quick Amounts:
                   </Typography>
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                     {suggestedAmounts.map(amount => (
                       <Chip
                         key={amount}
-                        label={`₦${amount.toFixed(2)}`}
+                        label={formatCurrency(amount)}
                         size="small"
                         onClick={() => setPaidAmount(amount.toString())}
                         variant={parseFloat(paidAmount) === amount ? "filled" : "outlined"}
@@ -1206,7 +1244,7 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
               {changeAmount >= 0 && paidAmount && (
                 <Alert severity="success" sx={{ mb: 2 }}>
                   <Typography variant="body2">
-                    Change: <strong>₦{changeAmount.toFixed(2)}</strong>
+                    Change: <strong>{formatCurrency(changeAmount)}</strong>
                   </Typography>
                 </Alert>
               )}
@@ -1214,7 +1252,7 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
               {changeAmount < 0 && (
                 <Alert severity="error" sx={{ mb: 2 }}>
                   <Typography variant="body2">
-                    Insufficient amount. Short by: <strong>₦{Math.abs(changeAmount).toFixed(2)}</strong>
+                    Insufficient amount. Short by: <strong>{formatCurrency(Math.abs(changeAmount))}</strong>
                   </Typography>
                 </Alert>
               )}
@@ -1225,8 +1263,8 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
                     variant="contained"
                     color={isOnline ? "primary" : "warning"}
                     onClick={handleCompleteSale}
-                    disabled={cart.length === 0 || !paidAmount || isPrinting || 
-                             isNaN(paidAmount) || parseFloat(paidAmount) < totalAmount}
+                    disabled={cart.length === 0 || !paidAmount || isPrinting ||
+                      isNaN(paidAmount) || parseFloat(paidAmount) < totalAmount}
                     fullWidth
                     size="large"
                     startIcon={isPrinting ? <PrintIcon /> : isOnline ? <ReceiptIcon /> : <SaveIcon />}
@@ -1260,10 +1298,10 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
         onClose={handleCloseSnackbar}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
-        <MuiAlert 
-          elevation={6} 
-          variant="filled" 
-          onClose={handleCloseSnackbar} 
+        <MuiAlert
+          elevation={6}
+          variant="filled"
+          onClose={handleCloseSnackbar}
           severity={snackbar.severity}
         >
           {snackbar.message}
@@ -1272,7 +1310,7 @@ const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
 
       {/* Hidden receipt for printing */}
       <div style={{ display: "none" }}>
-        <Receipt ref={receiptRef} sale={lastSale} />
+        <Receipt ref={receiptRef} sale={lastSale} store={store} />
       </div>
 
       {/* Keyboard Shortcuts Dialog */}

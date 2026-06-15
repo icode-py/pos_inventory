@@ -1,8 +1,8 @@
 // src/components/Layout.jsx
 import { useContext, useState, useEffect } from "react";
 import {
-  AppBar, Box, CssBaseline, Drawer, IconButton, Toolbar, Typography, List, ListItem, ListItemButton, ListItemIcon, ListItemText,
-  Divider, Badge, Avatar, Menu, MenuItem, Chip, useTheme, useMediaQuery
+  AppBar, Box, Drawer, IconButton, Toolbar, Typography, List, ListItem, ListItemButton, ListItemIcon, ListItemText,
+  Divider, Badge, Avatar, Menu, MenuItem, Chip, useTheme, useMediaQuery, Tooltip, Paper
 } from "@mui/material";
 import {
   Dashboard as DashboardIcon,
@@ -21,11 +21,19 @@ import {
   Assessment as ReportsIcon,
   Wifi as WifiIcon,
   WifiOff as WifiOffIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Warning as WarningIcon,
+  History as AuditIcon,
+  ErrorOutline as CriticalIcon,
+  LightMode as LightModeIcon,
+  DarkMode as DarkModeIcon,
+  ManageAccounts as ManageAccountsIcon,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 import { useOffline } from "../context/OfflineManager";
+import { useColorMode } from "../context/ThemeContext";
+import { useStore } from "../context/StoreContext";
 import axiosInstance from "../utils/axiosInstance";
 
 const drawerWidth = 280;
@@ -33,12 +41,16 @@ const drawerWidth = 280;
 const Layout = ({ children }) => {
   const { user, logoutUser } = useContext(AuthContext);
   const { isOnline, pendingSales } = useOffline();
+  const { mode, toggleColorMode } = useColorMode();
+  const { store } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
+  const [notifAnchorEl, setNotifAnchorEl] = useState(null);
+  const [lowStockAlerts, setLowStockAlerts] = useState([]);
   const [todayStats, setTodayStats] = useState({
     sales: 0,
     transactions: 0,
@@ -85,10 +97,26 @@ const Layout = ({ children }) => {
     }
   };
 
+  const fetchLowStockAlerts = async () => {
+    if (!user) return;
+    try {
+      const res = await axiosInstance.get('/low-stock-alerts/');
+      setLowStockAlerts(res.data.alerts || []);
+    } catch {
+      // silently ignore
+    }
+  };
+
   // Poll for updates every 30 seconds
   useEffect(() => {
     fetchTodayStats();
-    const interval = setInterval(fetchTodayStats, 30000); // Update every 30 seconds
+    const interval = setInterval(fetchTodayStats, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  useEffect(() => {
+    fetchLowStockAlerts();
+    const interval = setInterval(fetchLowStockAlerts, 60000);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -115,15 +143,19 @@ const Layout = ({ children }) => {
     handleProfileMenuClose();
   };
 
+  const isManagerOrAdmin = user?.role === 'manager' || user?.role === 'admin';
+
   const menuItems = [
     { text: "Dashboard", icon: <DashboardIcon />, path: "/dashboard" },
     { text: "POS Terminal", icon: <ShoppingCartIcon />, path: "/salespage" },
     { text: "Products", icon: <InventoryIcon />, path: "/products" },
-    { text: "Restock", icon: <RestockIcon />, path: "/restock" },
-    { text: "Sales Reports", icon: <TrendingUpIcon />, path: "/reports/sales" },
-    { text: "Customers", icon: <PeopleIcon />, path: "/customers" },
+    { text: "Restock", icon: <RestockIcon />, path: "/restock", restricted: true },
+    { text: "Sales Reports", icon: <TrendingUpIcon />, path: "/reports/sales", restricted: true },
+    { text: "Customers", icon: <PeopleIcon />, path: "/customers", restricted: true },
+    { text: "Staff", icon: <ManageAccountsIcon />, path: "/staff", restricted: true },
+    { text: "Audit Log", icon: <AuditIcon />, path: "/audit-log", restricted: true },
     { text: "Settings", icon: <SettingsIcon />, path: "/settings" },
-  ];
+  ].filter(item => !item.restricted || isManagerOrAdmin);
 
   const formatCurrency = (amount) => {
     return `₦${parseFloat(amount || 0).toLocaleString('en-NG', {
@@ -133,95 +165,51 @@ const Layout = ({ children }) => {
   };
 
   const drawer = (
-    <Box sx={{ overflow: 'auto', display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Store Header - Modern Design */}
-      <Box sx={{ 
-        p: 3, 
-        textAlign: 'center', 
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Spacer so content starts below the fixed AppBar */}
+      <Toolbar sx={{ minHeight: '70px !important', flexShrink: 0 }} />
+
+      {/* User Info */}
+      <Box sx={{
+        p: 2.5,
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         color: 'white',
-        position: 'relative',
-        overflow: 'hidden'
-      }}>
-        {/* Background Pattern */}
-        <Box sx={{
-          position: 'absolute',
-          top: -50,
-          right: -50,
-          width: 120,
-          height: 120,
-          borderRadius: '50%',
-          background: 'rgba(255,255,255,0.1)',
-        }} />
-        <Box sx={{
-          position: 'absolute',
-          bottom: -30,
-          left: -30,
-          width: 80,
-          height: 80,
-          borderRadius: '50%',
-          background: 'rgba(255,255,255,0.1)',
-        }} />
-        
-        <StoreIcon sx={{ fontSize: 40, mb: 1, position: 'relative', zIndex: 1 }} />
-        <Typography variant="h6" fontWeight="bold" sx={{ position: 'relative', zIndex: 1 }}>
-          HOLO SUPERMARKET
-        </Typography>
-        <Typography variant="caption" sx={{ opacity: 0.9, position: 'relative', zIndex: 1 }}>
-          Modern Point of Sale
-        </Typography>
-        
-        {/* Online Status */}
-        <Chip
-          icon={isOnline ? <WifiIcon /> : <WifiOffIcon />}
-          label={isOnline ? "Online" : "Offline"}
-          size="small"
-          color={isOnline ? "success" : "warning"}
-          variant="filled"
-          sx={{ 
-            mt: 1, 
-            background: isOnline ? 'rgba(76,175,80,0.9)' : 'rgba(255,152,0,0.9)',
-            color: 'white',
-            position: 'relative',
-            zIndex: 1
-          }}
-        />
-      </Box>
-
-      <Divider />
-
-      {/* User Info - Modern Card */}
-      <Box sx={{ 
-        p: 2, 
-        borderBottom: 1, 
-        borderColor: 'divider',
-        background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'
+        flexShrink: 0,
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Avatar sx={{ 
-            bgcolor: 'primary.main', 
-            width: 48, 
-            height: 48,
-            border: '3px solid white',
-            boxShadow: 1
+          <Avatar sx={{
+            width: 52,
+            height: 52,
+            fontSize: '1.4rem',
+            fontWeight: 'bold',
+            bgcolor: 'rgba(255,255,255,0.22)',
+            color: 'white',
+            border: '2px solid rgba(255,255,255,0.5)',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+            flexShrink: 0,
           }}>
             {user?.username?.charAt(0).toUpperCase()}
           </Avatar>
-          <Box sx={{ flexGrow: 1 }}>
-            <Typography variant="subtitle1" fontWeight="medium" noWrap component="div">
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              variant="subtitle1"
+              fontWeight="bold"
+              noWrap
+              sx={{ color: 'white', lineHeight: 1.3 }}
+            >
               {user?.username}
             </Typography>
-            <Chip 
-              label={user?.role?.toUpperCase()} 
-              size="small" 
-              color={
-                user?.role === 'admin' ? 'error' : 
-                user?.role === 'manager' ? 'warning' : 'primary'
-              }
-              sx={{ 
-                height: 20, 
+            <Chip
+              label={user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : ''}
+              size="small"
+              sx={{
+                mt: 0.4,
+                height: 20,
                 fontSize: '0.7rem',
-                fontWeight: 'bold'
+                fontWeight: 'bold',
+                bgcolor: 'rgba(255,255,255,0.18)',
+                color: 'white',
+                border: '1px solid rgba(255,255,255,0.35)',
               }}
             />
           </Box>
@@ -229,7 +217,7 @@ const Layout = ({ children }) => {
       </Box>
 
       {/* Navigation Menu */}
-      <List sx={{ px: 1, flexGrow: 1, py: 1 }}>
+      <List sx={{ px: 1, flexGrow: 1, py: 1, overflow: 'auto' }}>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
             <ListItemButton
@@ -279,11 +267,12 @@ const Layout = ({ children }) => {
       </List>
 
       {/* Today's Performance Footer - Real-time Updates */}
-      <Box sx={{ 
-        p: 2, 
+      <Box sx={{
+        p: 2,
         background: 'linear-gradient(135deg, #2c3e50 0%, #3498db 100%)',
         color: 'white',
-        borderTop: '1px solid rgba(255,255,255,0.1)'
+        borderTop: '1px solid rgba(255,255,255,0.1)',
+        flexShrink: 0,
       }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
           <Typography variant="caption" sx={{ opacity: 0.8, fontWeight: 'medium' }} component="div">
@@ -329,14 +318,13 @@ const Layout = ({ children }) => {
 
   return (
     <Box sx={{ display: 'flex' }}>
-      <CssBaseline />
 
       {/* Top App Bar - Modern Design */}
       <AppBar 
         position="fixed" 
         sx={{ 
           zIndex: theme.zIndex.drawer + 1,
-          background: 'rgba(255, 255, 255, 0.95)',
+          background: mode === 'dark' ? 'rgba(26,29,39,0.95)' : 'rgba(255, 255, 255, 0.95)',
           backdropFilter: 'blur(20px)',
           color: 'text.primary',
           boxShadow: '0 2px 20px rgba(0,0,0,0.1)',
@@ -358,36 +346,39 @@ const Layout = ({ children }) => {
           {/* Store Logo/Brand */}
           <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
             <StoreIcon sx={{ color: 'primary.main', mr: 1, fontSize: 28 }} />
-            <Typography variant="h5" component="div" fontWeight="bold" sx={{ 
+            <Typography variant="h5" component="div" fontWeight="bold" sx={{
               color: 'primary.main',
               background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
               backgroundClip: 'text',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent'
             }}>
-              HOLO POS
+              {store.name}
             </Typography>
           </Box>
 
           {/* Quick Actions */}
           <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 2, mr: 3 }}>
-            <Chip 
-              icon={<ShoppingCartIcon />} 
-              label="New Sale" 
+            <Chip
+              icon={<ShoppingCartIcon />}
+              label="New Sale"
               clickable
               color="primary"
               variant="filled"
               onClick={() => navigate('/salespage')}
               sx={{ fontWeight: 'bold', borderRadius: 2 }}
             />
-            <Chip 
-              icon={<InventoryIcon />} 
-              label="Low Stock" 
-              clickable
-              color="warning"
-              variant="outlined"
-              sx={{ fontWeight: 'medium', borderRadius: 2 }}
-            />
+            {isManagerOrAdmin && (
+              <Chip
+                icon={<RestockIcon />}
+                label="Restock"
+                clickable
+                color="secondary"
+                variant="outlined"
+                onClick={() => navigate('/restock')}
+                sx={{ fontWeight: 'medium', borderRadius: 2 }}
+              />
+            )}
           </Box>
 
           {/* Notifications & Profile */}
@@ -400,12 +391,24 @@ const Layout = ({ children }) => {
               color={isOnline ? "success" : "warning"}
               variant="outlined"
             />
-            
-            <IconButton color="inherit" sx={{ color: 'text.secondary' }}>
-              <Badge badgeContent={4} color="error">
-                <NotificationsIcon />
-              </Badge>
-            </IconButton>
+
+            <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+              <IconButton onClick={toggleColorMode} sx={{ color: 'text.secondary' }}>
+                {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip title="Low stock alerts">
+              <IconButton
+                color="inherit"
+                sx={{ color: 'text.secondary' }}
+                onClick={(e) => setNotifAnchorEl(e.currentTarget)}
+              >
+                <Badge badgeContent={lowStockAlerts.length || null} color="error">
+                  <NotificationsIcon />
+                </Badge>
+              </IconButton>
+            </Tooltip>
             
             <IconButton 
               onClick={handleProfileMenuOpen} 
@@ -444,6 +447,58 @@ const Layout = ({ children }) => {
           <ListItemIcon><LogoutIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
           <ListItemText>Logout</ListItemText>
         </MenuItem>
+      </Menu>
+
+      {/* Low-Stock Notification Popover */}
+      <Menu
+        anchorEl={notifAnchorEl}
+        open={Boolean(notifAnchorEl)}
+        onClose={() => setNotifAnchorEl(null)}
+        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+        sx={{ mt: 1, '& .MuiPaper-root': { borderRadius: 2, boxShadow: 4, minWidth: 300, maxWidth: 360 } }}
+      >
+        <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="subtitle1" fontWeight="bold">Low Stock Alerts</Typography>
+          <Chip label={lowStockAlerts.length} color={lowStockAlerts.length > 0 ? 'error' : 'default'} size="small" />
+        </Box>
+        {lowStockAlerts.length === 0 ? (
+          <Box sx={{ px: 2, py: 3, textAlign: 'center' }}>
+            <Typography variant="body2" color="text.secondary">All products are well-stocked</Typography>
+          </Box>
+        ) : (
+          <Box sx={{ maxHeight: 360, overflow: 'auto' }}>
+            {lowStockAlerts.map((alert) => (
+              <MenuItem
+                key={alert.id}
+                onClick={() => { setNotifAnchorEl(null); navigate('/products'); }}
+                sx={{ py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}
+              >
+                <ListItemIcon>
+                  {alert.severity === 'critical'
+                    ? <CriticalIcon color="error" />
+                    : <WarningIcon color="warning" />}
+                </ListItemIcon>
+                <ListItemText
+                  primary={alert.name}
+                  secondary={`Stock: ${alert.stock} units ${alert.category ? `· ${alert.category}` : ''}`}
+                  primaryTypographyProps={{ fontWeight: 'medium', variant: 'body2' }}
+                  secondaryTypographyProps={{ variant: 'caption', color: alert.severity === 'critical' ? 'error' : 'warning.main' }}
+                />
+              </MenuItem>
+            ))}
+          </Box>
+        )}
+        <Box sx={{ px: 2, py: 1, borderTop: 1, borderColor: 'divider' }}>
+          <Typography
+            variant="caption"
+            color="primary"
+            sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+            onClick={() => { setNotifAnchorEl(null); navigate('/products?stock=low'); }}
+          >
+            View all low stock products →
+          </Typography>
+        </Box>
       </Menu>
 
       {/* Sidebar Drawer */}
@@ -497,17 +552,18 @@ const Layout = ({ children }) => {
           p: 3,
           width: { md: `calc(100% - ${drawerWidth}px)` },
           minHeight: '100vh',
-          background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'
+          background: mode === 'dark' ? '#0f1117' : 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'
         }}
       >
         <Toolbar sx={{ minHeight: '70px !important' }} />
-        <Box sx={{ 
-          background: 'white', 
-          borderRadius: 3, 
+        <Box sx={{
+          bgcolor: 'background.paper',
+          borderRadius: 3,
           boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
           minHeight: 'calc(100vh - 100px)',
           overflow: 'hidden',
-          border: '1px solid rgba(255,255,255,0.2)'
+          border: '1px solid',
+          borderColor: 'divider'
         }}>
           {children}
         </Box>
