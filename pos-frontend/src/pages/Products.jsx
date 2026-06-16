@@ -442,8 +442,8 @@ function ProductsPage() {
               <Typography>Loading products...</Typography>
             </Box>
           ) : (
-            <TableContainer>
-              <Table>
+            <TableContainer sx={{ overflowX: 'auto' }}>
+              <Table sx={{ minWidth: 800 }}>
                 <TableHead>
                   <TableRow sx={{ bgcolor: 'primary.main' }}>
                     {canWrite && (

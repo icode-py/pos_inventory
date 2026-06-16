@@ -1103,7 +1103,7 @@ const SalesPage = () => {
                   )}
                 </Box>
                 <TableContainer sx={{ maxHeight: 400, overflow: 'auto' }}>
-                  <Table size="small">
+                  <Table size="small" sx={{ minWidth: 600 }}>
                     <TableHead>
                       <TableRow>
                         <TableCell>Product</TableCell>

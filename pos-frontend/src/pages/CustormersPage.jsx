@@ -253,8 +253,8 @@ const CustomersPage = () => {
       {/* Customers Table */}
       <Card>
         <CardContent sx={{ p: 0 }}>
-          <TableContainer>
-            <Table>
+          <TableContainer sx={{ overflowX: 'auto' }}>
+            <Table sx={{ minWidth: 700 }}>
               <TableHead>
                 <TableRow sx={{ bgcolor: 'primary.main' }}>
                   {['Customer', 'Contact', 'Loyalty Points', 'Total Spent', 'Visits', 'Actions'].map((h, i) => (

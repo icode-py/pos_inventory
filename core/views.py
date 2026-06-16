@@ -861,6 +861,30 @@ def reset_staff_password(request, pk):
     return Response({'message': 'Password reset successfully'})
 
 
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated, IsManagerOrAdmin])
+@throttle_classes([BurstRateThrottle])
+def delete_staff(request, pk):
+    try:
+        staff = Staff.objects.get(pk=pk)
+    except Staff.DoesNotExist:
+        return Response({'error': 'Staff not found'}, status=404)
+    if staff.is_admin and not request.user.is_admin:
+        return Response({'error': 'Cannot delete admin accounts'}, status=403)
+    if staff.pk == request.user.pk:
+        return Response({'error': 'Cannot delete your own account'}, status=403)
+    username = staff.username
+    AuditLog.objects.create(
+        action='DELETE', model_name='Staff',
+        object_id=str(staff.pk), object_repr=username,
+        changed_by=request.user,
+        changes={},
+    )
+    staff.delete()
+    logger.info('Staff %s deleted by %s', username, request.user.username)
+    return Response({'message': 'Staff account deleted successfully'})
+
+
 # ─── Store Settings ───────────────────────────────────────────────────────────
 
 @api_view(['GET'])

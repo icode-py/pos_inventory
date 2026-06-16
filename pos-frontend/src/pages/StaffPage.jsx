@@ -10,6 +10,7 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Lock as LockIcon,
+  Delete as DeleteIcon,
   Search as SearchIcon,
   ManageAccounts as ManageAccountsIcon,
   PersonAdd as PersonAddIcon,
@@ -65,6 +66,12 @@ export default function StaffPage() {
   const [pwForm,   setPwForm]   = useState(EMPTY_PW);
   const [pwSaving, setPwSaving] = useState(false);
   const [pwError,  setPwError]  = useState('');
+
+  // Delete dialog
+  const [deleteOpen,   setDeleteOpen]   = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [deleteError,  setDeleteError]  = useState('');
 
   const [snack, setSnack] = useState({ open: false, message: '', severity: 'success' });
 
@@ -181,6 +188,29 @@ export default function StaffPage() {
     pwForm.new_password.length >= 6 &&
     pwForm.new_password === pwForm.confirm_password;
 
+  // ── Delete Staff ──
+  const openDelete = (member) => {
+    setDeleteTarget(member);
+    setDeleteError('');
+    setDeleteOpen(true);
+  };
+
+  const handleDelete = async () => {
+    setDeleteSaving(true);
+    setDeleteError('');
+    try {
+      await axiosInstance.delete(`/staff/${deleteTarget.id}/delete/`);
+      setDeleteOpen(false);
+      setStaff(prev => prev.filter(s => s.id !== deleteTarget.id));
+      showSnack(`${deleteTarget.username} deleted`);
+    } catch (err) {
+      const d = err.response?.data;
+      setDeleteError(d?.error || 'Failed to delete staff account');
+    } finally {
+      setDeleteSaving(false);
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -215,8 +245,8 @@ export default function StaffPage() {
       </Paper>
 
       {/* Table */}
-      <TableContainer component={Paper}>
-        <Table>
+      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+        <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow sx={{ '& th': { fontWeight: 'bold', bgcolor: 'action.hover' } }}>
               <TableCell>Username</TableCell>
@@ -282,6 +312,11 @@ export default function StaffPage() {
                         <Tooltip title="Reset password">
                           <IconButton size="small" color="warning" onClick={() => openPw(member)}>
                             <LockIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete account">
+                          <IconButton size="small" color="error" onClick={() => openDelete(member)}>
+                            <DeleteIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       </Box>
@@ -440,6 +475,30 @@ export default function StaffPage() {
             startIcon={pwSaving ? <CircularProgress size={16} color="inherit" /> : <LockIcon />}
           >
             {pwSaving ? 'Resetting...' : 'Reset Password'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Delete Confirmation Dialog ── */}
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete — {deleteTarget?.username}</DialogTitle>
+        <DialogContent sx={{ pt: '16px !important', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {deleteError && <Alert severity="error">{deleteError}</Alert>}
+          <Alert severity="warning">
+            This will permanently remove <strong>{deleteTarget?.username}</strong>'s account.
+            This action cannot be undone.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDelete}
+            disabled={deleteSaving}
+            startIcon={deleteSaving ? <CircularProgress size={16} color="inherit" /> : <DeleteIcon />}
+          >
+            {deleteSaving ? 'Deleting...' : 'Delete Account'}
           </Button>
         </DialogActions>
       </Dialog>

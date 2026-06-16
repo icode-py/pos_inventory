@@ -12,6 +12,7 @@ import {
   TableRow,
   TableCell,
   TableBody,
+  TableContainer,
   Paper,
   Card,
   CardContent,
@@ -541,7 +542,8 @@ const SalesReport = () => {
               <Typography variant="h6" gutterBottom>
                 Detailed Product Performance
               </Typography>
-              <Table size="small">
+              <TableContainer sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 700 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Product</TableCell>
@@ -608,6 +610,7 @@ const SalesReport = () => {
                   })}
                 </TableBody>
               </Table>
+              </TableContainer>
             </CardContent>
           </Card>
         </Grid>
@@ -760,7 +763,8 @@ const SalesReport = () => {
               <Typography variant="h6" gutterBottom>
                 Category Performance
               </Typography>
-              <Table size="small">
+              <TableContainer sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 700 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Category</TableCell>
@@ -805,6 +809,7 @@ const SalesReport = () => {
                   })}
                 </TableBody>
               </Table>
+              </TableContainer>
             </CardContent>
           </Card>
         </Grid>
@@ -1128,7 +1133,7 @@ const SalesReport = () => {
                       Sales Transactions ({sales.length} total)
                     </Typography>
                     <Paper elevation={0} sx={{ maxHeight: 400, overflow: "auto" }}>
-                      <Table size="small">
+                      <Table size="small" sx={{ minWidth: 700 }}>
                         <TableHead>
                           <TableRow>
                             <TableCell>ID</TableCell>
@@ -1238,7 +1243,8 @@ const SalesReport = () => {
                   <Card>
                     <CardContent>
                       <Typography variant="h6" gutterBottom>Product Margin Breakdown</Typography>
-                      <Table size="small">
+                      <TableContainer sx={{ overflowX: 'auto' }}>
+                      <Table size="small" sx={{ minWidth: 700 }}>
                         <TableHead>
                           <TableRow>
                             <TableCell>Product</TableCell>
@@ -1270,6 +1276,7 @@ const SalesReport = () => {
                           ))}
                         </TableBody>
                       </Table>
+                      </TableContainer>
                     </CardContent>
                   </Card>
                 </Grid>
