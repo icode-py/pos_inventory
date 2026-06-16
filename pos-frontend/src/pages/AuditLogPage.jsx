@@ -124,7 +124,7 @@ export default function AuditLogPage() {
   useEffect(() => { fetchLogs(); }, [filters]);
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
           <Typography variant="h4" fontWeight="bold" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -143,7 +143,7 @@ export default function AuditLogPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={4}>
+            <Grid item size={{ xs: 12, sm: 4 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Action</InputLabel>
                 <Select value={filters.action} onChange={e => setFilters(f => ({ ...f, action: e.target.value }))} label="Action">
@@ -154,7 +154,7 @@ export default function AuditLogPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item size={{ xs: 12, sm: 4 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Model</InputLabel>
                 <Select value={filters.model} onChange={e => setFilters(f => ({ ...f, model: e.target.value }))} label="Model">
@@ -163,7 +163,7 @@ export default function AuditLogPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item size={{ xs: 12, sm: 4 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>User</InputLabel>
                 <Select value={filters.user_id} onChange={e => setFilters(f => ({ ...f, user_id: e.target.value }))} label="User">

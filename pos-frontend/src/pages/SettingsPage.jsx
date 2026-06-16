@@ -48,7 +48,7 @@ export default function SettingsPage() {
         <Divider sx={{ mb: 2 }} />
 
         <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
+          <Grid item size={{ xs: 12, sm: 6 }}>
             <TextField
               label="Store Name"
               name="name"
@@ -59,7 +59,7 @@ export default function SettingsPage() {
               helperText="Shown on receipts, sidebar, and top bar"
             />
           </Grid>
-          <Grid item xs={12} sm={6}>
+          <Grid item size={{ xs: 12, sm: 6 }}>
             <TextField
               label="Tagline"
               name="tagline"
@@ -70,14 +70,14 @@ export default function SettingsPage() {
             />
           </Grid>
 
-          <Grid item xs={12}>
+          <Grid item size={{ xs: 12 }}>
             <Typography variant="subtitle1" fontWeight="bold" gutterBottom sx={{ mt: 1 }}>
               Contact Information
             </Typography>
             <Divider sx={{ mb: 2 }} />
           </Grid>
 
-          <Grid item xs={12} sm={6}>
+          <Grid item size={{ xs: 12, sm: 6 }}>
             <TextField
               label="Phone Number"
               name="phone"
@@ -87,7 +87,7 @@ export default function SettingsPage() {
               helperText="Printed on receipt"
             />
           </Grid>
-          <Grid item xs={12} sm={6}>
+          <Grid item size={{ xs: 12, sm: 6 }}>
             <TextField
               label="Email Address"
               name="email"
@@ -98,7 +98,7 @@ export default function SettingsPage() {
               helperText="Optional"
             />
           </Grid>
-          <Grid item xs={12}>
+          <Grid item size={{ xs: 12 }}>
             <TextField
               label="Address"
               name="address"
@@ -109,14 +109,14 @@ export default function SettingsPage() {
             />
           </Grid>
 
-          <Grid item xs={12}>
+          <Grid item size={{ xs: 12 }}>
             <Typography variant="subtitle1" fontWeight="bold" gutterBottom sx={{ mt: 1 }}>
               Receipt
             </Typography>
             <Divider sx={{ mb: 2 }} />
           </Grid>
 
-          <Grid item xs={12}>
+          <Grid item size={{ xs: 12 }}>
             <TextField
               label="Receipt Footer Message"
               name="receipt_footer"
