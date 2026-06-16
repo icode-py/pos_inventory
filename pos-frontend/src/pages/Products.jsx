@@ -305,7 +305,7 @@ function ProductsPage() {
 
       {/* Statistics Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard
             title="TOTAL PRODUCTS"
             value={stats.totalProducts}
@@ -314,7 +314,7 @@ function ProductsPage() {
             color="#1976d2"
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard
             title="LOW STOCK"
             value={stats.lowStockProducts}
@@ -323,7 +323,7 @@ function ProductsPage() {
             color="#ed6c02"
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard
             title="OUT OF STOCK"
             value={stats.outOfStockProducts}
@@ -332,7 +332,7 @@ function ProductsPage() {
             color="#d32f2f"
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard
             title="INVENTORY VALUE"
             value={formatCurrency(stats.totalInventoryValue)}
@@ -347,7 +347,7 @@ function ProductsPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={4}>
+            <Grid item size={{ xs: 12, md: 4 }}>
               <TextField
                 fullWidth
                 placeholder="Search products by name or barcode..."
@@ -358,7 +358,7 @@ function ProductsPage() {
                 }}
               />
             </Grid>
-            <Grid item xs={12} md={2}>
+            <Grid item size={{ xs: 12, md: 2 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Category</InputLabel>
                 <Select
@@ -375,7 +375,7 @@ function ProductsPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={2}>
+            <Grid item size={{ xs: 12, md: 2 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Stock Status</InputLabel>
                 <Select
@@ -390,7 +390,7 @@ function ProductsPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={4} sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            <Grid item size={{ xs: 12, md: 4 }} sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               {canWrite && (
                 <>
                   <Button variant="outlined" startIcon={<CategoryIcon />} onClick={() => setCategoryModalOpen(true)}>
@@ -669,7 +669,7 @@ function ProductsPage() {
         <DialogContent>
           {viewedProduct && (
             <Grid container spacing={3} sx={{ mt: 1 }}>
-              <Grid item xs={12} md={6}>
+              <Grid item size={{ xs: 12, md: 6 }}>
                 <Typography variant="h6" gutterBottom>Basic Information</Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Box>
@@ -687,7 +687,7 @@ function ProductsPage() {
                 </Box>
               </Grid>
 
-              <Grid item xs={12} md={6}>
+              <Grid item size={{ xs: 12, md: 6 }}>
                 <Typography variant="h6" gutterBottom>Pricing & Stock</Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Box>

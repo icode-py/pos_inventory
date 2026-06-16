@@ -93,7 +93,7 @@ const CustomerProfile = () => {
 
       <Grid container spacing={3}>
         {/* Customer Info Card */}
-        <Grid item xs={12} md={4}>
+        <Grid item size={{ xs: 12, md: 4 }}>
           <Card>
             <CardContent sx={{ textAlign: 'center', p: 3 }}>
               <Avatar
@@ -174,10 +174,10 @@ const CustomerProfile = () => {
         </Grid>
 
         {/* Statistics and Transactions */}
-        <Grid item xs={12} md={8}>
+        <Grid item size={{ xs: 12, md: 8 }}>
           {/* Statistics Cards */}
           <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid item xs={12} sm={4}>
+            <Grid item size={{ xs: 12, sm: 4 }}>
               <Card sx={{ bgcolor: 'primary.light', color: 'white' }}>
                 <CardContent sx={{ textAlign: 'center' }}>
                   <MoneyIcon sx={{ fontSize: 40, mb: 1 }} />
@@ -189,7 +189,7 @@ const CustomerProfile = () => {
               </Card>
             </Grid>
             
-            <Grid item xs={12} sm={4}>
+            <Grid item size={{ xs: 12, sm: 4 }}>
               <Card sx={{ bgcolor: 'success.light', color: 'white' }}>
                 <CardContent sx={{ textAlign: 'center' }}>
                   <CartIcon sx={{ fontSize: 40, mb: 1 }} />
@@ -199,7 +199,7 @@ const CustomerProfile = () => {
               </Card>
             </Grid>
             
-            <Grid item xs={12} sm={4}>
+            <Grid item size={{ xs: 12, sm: 4 }}>
               <Card sx={{ bgcolor: 'warning.light', color: 'white' }}>
                 <CardContent sx={{ textAlign: 'center' }}>
                   <LoyaltyIcon sx={{ fontSize: 40, mb: 1 }} />

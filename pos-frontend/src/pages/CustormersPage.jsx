@@ -153,7 +153,7 @@ const CustomersPage = () => {
   // ── Shared form fields component ─────────────────────────────────────────────
   const CustomerFormFields = ({ data, onChange }) => (
     <Grid container spacing={2} sx={{ mt: 1 }}>
-      <Grid item xs={12}>
+      <Grid item size={{ xs: 12 }}>
         <TextField
           fullWidth required
           label="Phone Number"
@@ -163,7 +163,7 @@ const CustomersPage = () => {
           InputProps={{ startAdornment: <PhoneIcon sx={{ mr: 1, color: 'text.secondary' }} /> }}
         />
       </Grid>
-      <Grid item xs={12}>
+      <Grid item size={{ xs: 12 }}>
         <TextField
           fullWidth required
           label="Full Name"
@@ -171,7 +171,7 @@ const CustomersPage = () => {
           onChange={(e) => onChange('name', e.target.value)}
         />
       </Grid>
-      <Grid item xs={12}>
+      <Grid item size={{ xs: 12 }}>
         <TextField
           fullWidth
           label="Email Address"
@@ -181,7 +181,7 @@ const CustomersPage = () => {
           InputProps={{ startAdornment: <EmailIcon sx={{ mr: 1, color: 'text.secondary' }} /> }}
         />
       </Grid>
-      <Grid item xs={12}>
+      <Grid item size={{ xs: 12 }}>
         <TextField
           fullWidth
           label="Notes"
@@ -217,7 +217,7 @@ const CustomersPage = () => {
             color: 'info.light',
           },
         ].map(({ label, value, color }) => (
-          <Grid item xs={12} sm={6} md={3} key={label}>
+          <Grid item size={{ xs: 12, sm: 6, md: 3 }} key={label}>
             <Card sx={{ bgcolor: color, color: 'white' }}>
               <CardContent>
                 <Typography variant="h4" gutterBottom fontWeight="bold">{value}</Typography>
@@ -232,7 +232,7 @@ const CustomersPage = () => {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={6}>
+            <Grid item size={{ xs: 12, md: 6 }}>
               <TextField
                 fullWidth
                 placeholder="Search by name or phone..."
@@ -241,7 +241,7 @@ const CustomersPage = () => {
                 InputProps={{ startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} /> }}
               />
             </Grid>
-            <Grid item xs={12} md={6} sx={{ textAlign: 'right' }}>
+            <Grid item size={{ xs: 12, md: 6 }} sx={{ textAlign: 'right' }}>
               <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
                 Add Customer
               </Button>
@@ -404,7 +404,7 @@ const CustomersPage = () => {
         <DialogContent>
           {viewCustomer && (
             <Grid container spacing={3} sx={{ mt: 0.5 }}>
-              <Grid item xs={12} md={6}>
+              <Grid item size={{ xs: 12, md: 6 }}>
                 <Typography variant="h6" gutterBottom>Profile</Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
                   <Avatar sx={{ width: 64, height: 64, bgcolor: 'primary.main', fontSize: '1.5rem' }}>
@@ -425,7 +425,7 @@ const CustomersPage = () => {
                   <Typography sx={{ mt: 1 }}><strong>Notes:</strong> {viewCustomer.notes}</Typography>
                 )}
               </Grid>
-              <Grid item xs={12} md={6}>
+              <Grid item size={{ xs: 12, md: 6 }}>
                 <Typography variant="h6" gutterBottom>Loyalty Statistics</Typography>
                 {[
                   { label: 'Loyalty Points', value: viewCustomer.loyalty_points },

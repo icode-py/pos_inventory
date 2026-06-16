@@ -794,7 +794,7 @@ const SalesPage = () => {
       </DialogTitle>
       <DialogContent>
         <Grid container spacing={2} sx={{ mt: 1 }}>
-          <Grid item xs={12} sm={6}>
+          <Grid item size={{ xs: 12, sm: 6 }}>
             <Typography variant="subtitle2" gutterBottom>Global Shortcuts</Typography>
             <Typography variant="body2"><strong>Ctrl + Enter:</strong> Complete Sale</Typography>
             <Typography variant="body2"><strong>Ctrl + Delete:</strong> Clear Cart</Typography>
@@ -802,14 +802,14 @@ const SalesPage = () => {
             <Typography variant="body2"><strong>Ctrl + R:</strong> Refresh Products</Typography>
             <Typography variant="body2"><strong>Ctrl + K:</strong> Show Shortcuts</Typography>
           </Grid>
-          <Grid item xs={12} sm={6}>
+          <Grid item size={{ xs: 12, sm: 6 }}>
             <Typography variant="subtitle2" gutterBottom>Function Keys</Typography>
             <Typography variant="body2"><strong>F1:</strong> Show Shortcuts</Typography>
             <Typography variant="body2"><strong>F2:</strong> Focus Barcode</Typography>
             <Typography variant="body2"><strong>F5:</strong> Refresh Products</Typography>
             <Typography variant="body2"><strong>Esc:</strong> Clear Cart</Typography>
           </Grid>
-          <Grid item xs={12}>
+          <Grid item size={{ xs: 12 }}>
             <Divider sx={{ my: 1 }} />
             <Typography variant="subtitle2" gutterBottom>Bulk Pricing Features</Typography>
             <Typography variant="body2">
@@ -830,7 +830,7 @@ const SalesPage = () => {
     <Box sx={{ p: { xs: 1.5, md: 3 } }}>
       <Grid container spacing={{ xs: 1.5, md: 3 }}>
         {/* Header with Connection Status */}
-        <Grid item xs={12}>
+        <Grid item size={{ xs: 12 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, flexWrap: 'wrap', gap: 1 }}>
             <Box>
               <Typography variant="h5" component="h1" fontWeight="bold" sx={{ fontSize: { xs: '1.2rem', md: '1.5rem' } }}>
@@ -936,7 +936,7 @@ const SalesPage = () => {
         {/* Main Content Area */}
         <Grid container spacing={3} sx={{ width: '100%', margin: 0 }}>
           {/* Product Selection Card */}
-          <Grid item xs={12} md={6}>
+          <Grid item size={{ xs: 12, md: 6 }}>
             <Card sx={{ height: '100%' }}>
               <CardContent>
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
@@ -1050,7 +1050,7 @@ const SalesPage = () => {
                 </Typography>
                 <Grid container spacing={1} sx={{ mb: 3 }}>
                   {quickProducts.map(product => (
-                    <Grid item xs={6} key={product.id}>
+                    <Grid item size={{ xs: 6 }} key={product.id}>
                       <Card
                         variant="outlined"
                         sx={{
@@ -1087,7 +1087,7 @@ const SalesPage = () => {
           </Grid>
 
           {/* Shopping Cart Card */}
-          <Grid item xs={12} md={6}>
+          <Grid item size={{ xs: 12, md: 6 }}>
             <Card sx={{ height: '100%' }}>
               <CardContent>
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
@@ -1146,7 +1146,7 @@ const SalesPage = () => {
         </Grid>
 
         {/* Payment Summary */}
-        <Grid item xs={12} md={4}>
+        <Grid item size={{ xs: 12, md: 4 }}>
           <Card sx={{ position: 'sticky', top: 24 }}>
             <CardContent>
               <Typography variant="h6" gutterBottom>

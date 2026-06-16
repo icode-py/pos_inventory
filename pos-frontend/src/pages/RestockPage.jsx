@@ -101,7 +101,7 @@ const loadRestockHistory = () => {
 
       <Grid container spacing={3}>
         {/* Restock Form */}
-        <Grid item xs={12} md={6}>
+        <Grid item size={{ xs: 12, md: 6 }}>
           <Card sx={{ boxShadow: 3, borderRadius: 2 }}>
             <CardContent sx={{ p: 3 }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', mb: 3 }}>
@@ -157,9 +157,9 @@ const loadRestockHistory = () => {
         </Grid>
 
         {/* Stats Cards */}
-        <Grid item xs={12} md={6}>
+        <Grid item size={{ xs: 12, md: 6 }}>
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={4}>
+            <Grid item size={{ xs: 12, sm: 4 }}>
               <Card sx={{ boxShadow: 2, borderRadius: 2, textAlign: 'center', p: 2 }}>
                 <Typography variant="h4" component="div" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
                   {products.length}
@@ -170,7 +170,7 @@ const loadRestockHistory = () => {
               </Card>
             </Grid>
             
-            <Grid item xs={12} sm={4}>
+            <Grid item size={{ xs: 12, sm: 4 }}>
               <Card sx={{ boxShadow: 2, borderRadius: 2, textAlign: 'center', p: 2 }}>
                 <Typography variant="h4" component="div" sx={{ fontWeight: 'bold', color: 'error.main' }}>
                   {products.filter(p => p.stock <= (p.low_stock_threshold || 10)).length}
@@ -181,7 +181,7 @@ const loadRestockHistory = () => {
               </Card>
             </Grid>
             
-            <Grid item xs={12} sm={4}>
+            <Grid item size={{ xs: 12, sm: 4 }}>
               <Card sx={{ boxShadow: 2, borderRadius: 2, textAlign: 'center', p: 2 }}>
                 <Typography variant="h4" component="div" sx={{ fontWeight: 'bold', color: 'success.main' }}>
                   {restockHistory.filter(entry => 

@@ -464,7 +464,7 @@ const SalesReport = () => {
     return (
       <Grid container spacing={3}>
         {/* Top Products Chart */}
-        <Grid item xs={12} md={8}>
+        <Grid item size={{ xs: 12, md: 8 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
@@ -497,7 +497,7 @@ const SalesReport = () => {
         </Grid>
 
         {/* Product Categories */}
-        <Grid item xs={12} md={4}>
+        <Grid item size={{ xs: 12, md: 4 }}>
           <Card sx={{ height: '100%' }}>
             <CardContent>
               <Typography variant="h6" gutterBottom>
@@ -536,7 +536,7 @@ const SalesReport = () => {
         </Grid>
 
         {/* Detailed Product Performance */}
-        <Grid item xs={12}>
+        <Grid item size={{ xs: 12 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
@@ -633,7 +633,7 @@ const SalesReport = () => {
     return (
       <Grid container spacing={3}>
         {/* Cashier Performance */}
-        <Grid item xs={12} md={6}>
+        <Grid item size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
@@ -693,14 +693,14 @@ const SalesReport = () => {
         </Grid>
 
         {/* Performance Metrics */}
-        <Grid item xs={12} md={6}>
+        <Grid item size={{ xs: 12, md: 6 }}>
           <Card sx={{ mb: 3 }}>
             <CardContent>
               <Typography variant="h6" gutterBottom>
                 Performance Metrics
               </Typography>
               <Grid container spacing={2}>
-                <Grid item xs={6}>
+                <Grid item size={{ xs: 6 }}>
                   <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
                     <AttachMoneyIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
                     <Typography variant="h5" color="primary">
@@ -711,7 +711,7 @@ const SalesReport = () => {
                     </Typography>
                   </Card>
                 </Grid>
-                <Grid item xs={6}>
+                <Grid item size={{ xs: 6 }}>
                   <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
                     <ShoppingCartIcon color="secondary" sx={{ fontSize: 40, mb: 1 }} />
                     <Typography variant="h5" color="secondary">
@@ -757,7 +757,7 @@ const SalesReport = () => {
         </Grid>
 
         {/* Category Performance */}
-        <Grid item xs={12}>
+        <Grid item size={{ xs: 12 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
@@ -833,7 +833,7 @@ const SalesReport = () => {
       {/* Quick Stats */}
       {quickStats && (
         <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
             <QuickStatsCard
               title="Total Revenue"
               value={quickStats.totalRevenue}
@@ -843,7 +843,7 @@ const SalesReport = () => {
               isCurrency={true}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
             <QuickStatsCard
               title="Avg. Transaction"
               value={quickStats.averageTransaction}
@@ -852,7 +852,7 @@ const SalesReport = () => {
               isCurrency={true}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
             <QuickStatsCard
               title="Top Product"
               value={quickStats.bestSellingProduct}
@@ -860,7 +860,7 @@ const SalesReport = () => {
               icon={<InventoryIcon fontSize="large" />}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
             <QuickStatsCard
               title="Top Cashier"
               value={quickStats.topCashier}
@@ -882,7 +882,7 @@ const SalesReport = () => {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid item size={{ xs: 12, sm: 6, md: 2 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Period</InputLabel>
                 <Select
@@ -898,7 +898,7 @@ const SalesReport = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid item size={{ xs: 12, sm: 6, md: 2 }}>
               <TextField
                 label="Start Date"
                 type="date"
@@ -910,7 +910,7 @@ const SalesReport = () => {
                 size="small"
               />
             </Grid>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid item size={{ xs: 12, sm: 6, md: 2 }}>
               <TextField
                 label="End Date"
                 type="date"
@@ -922,7 +922,7 @@ const SalesReport = () => {
                 size="small"
               />
             </Grid>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid item size={{ xs: 12, sm: 6, md: 2 }}>
               <TextField
                 select
                 label="Cashier"
@@ -940,7 +940,7 @@ const SalesReport = () => {
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid item size={{ xs: 12, sm: 6, md: 2 }}>
               <TextField
                 select
                 label="Product"
@@ -958,7 +958,7 @@ const SalesReport = () => {
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid item size={{ xs: 12, sm: 6, md: 2 }}>
               <Button 
                 variant="contained" 
                 onClick={fetchReport} 
@@ -1027,7 +1027,7 @@ const SalesReport = () => {
           {activeTab === 0 && (
             <Grid container spacing={3}>
               {/* Sales Trend Chart */}
-              <Grid item xs={12} md={8}>
+              <Grid item size={{ xs: 12, md: 8 }}>
                 <Card>
                   <CardContent>
                     <Typography variant="h6" gutterBottom>
@@ -1070,7 +1070,7 @@ const SalesReport = () => {
               </Grid>
 
               {/* Top Products */}
-              <Grid item xs={12} md={4}>
+              <Grid item size={{ xs: 12, md: 4 }}>
                 <Card sx={{ height: '100%' }}>
                   <CardContent>
                     <Typography variant="h6" gutterBottom>
@@ -1096,7 +1096,7 @@ const SalesReport = () => {
               </Grid>
 
               {/* Cashier Performance */}
-              <Grid item xs={12} md={6}>
+              <Grid item size={{ xs: 12, md: 6 }}>
                 <Card>
                   <CardContent>
                     <Typography variant="h6" gutterBottom>
@@ -1126,7 +1126,7 @@ const SalesReport = () => {
           {/* Sales Data Tab */}
           {activeTab === 1 && (
             <Grid container spacing={3}>
-              <Grid item xs={12}>
+              <Grid item size={{ xs: 12 }}>
                 <Card>
                   <CardContent>
                     <Typography variant="h6" gutterBottom>
@@ -1183,7 +1183,7 @@ const SalesReport = () => {
             marginData ? (
               <Grid container spacing={3}>
                 {/* Summary Cards */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
                   <Card sx={{ bgcolor: 'primary.light', color: 'white' }}>
                     <CardContent>
                       <Typography variant="overline">Total Revenue</Typography>
@@ -1191,7 +1191,7 @@ const SalesReport = () => {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
                   <Card sx={{ bgcolor: 'warning.light' }}>
                     <CardContent>
                       <Typography variant="overline">Total Cost</Typography>
@@ -1199,7 +1199,7 @@ const SalesReport = () => {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
                   <Card sx={{ bgcolor: 'success.light', color: 'white' }}>
                     <CardContent>
                       <Typography variant="overline">Gross Profit</Typography>
@@ -1207,7 +1207,7 @@ const SalesReport = () => {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
                   <Card sx={{ bgcolor: 'info.light', color: 'white' }}>
                     <CardContent>
                       <Typography variant="overline">Margin %</Typography>
@@ -1218,7 +1218,7 @@ const SalesReport = () => {
 
                 {/* Daily Margin Chart */}
                 {marginData.by_day?.length > 0 && (
-                  <Grid item xs={12}>
+                  <Grid item size={{ xs: 12 }}>
                     <Card>
                       <CardContent>
                         <Typography variant="h6" gutterBottom>Daily Revenue vs Cost vs Profit</Typography>
@@ -1239,7 +1239,7 @@ const SalesReport = () => {
                 )}
 
                 {/* Per-Product Margin Table */}
-                <Grid item xs={12}>
+                <Grid item size={{ xs: 12 }}>
                   <Card>
                     <CardContent>
                       <Typography variant="h6" gutterBottom>Product Margin Breakdown</Typography>
