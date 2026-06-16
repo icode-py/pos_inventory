@@ -9,7 +9,7 @@ from .views import (
     AuditedCategoryViewSet, AuditedProductViewSet, AuditLogViewSet,
     low_stock_alerts, download_product_template, bulk_upload_products,
     margin_report, get_store_settings, update_store_settings,
-    update_staff, reset_staff_password,
+    update_staff, reset_staff_password, delete_staff,
 )
 
 router = DefaultRouter()
@@ -43,4 +43,5 @@ urlpatterns = [
     path('store-settings/update/', update_store_settings, name='store-settings-update'),
     path('staff/<int:pk>/update/', update_staff, name='update-staff'),
     path('staff/<int:pk>/reset-password/', reset_staff_password, name='reset-staff-password'),
+    path('staff/<int:pk>/delete/', delete_staff, name='delete-staff'),
 ]

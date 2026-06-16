@@ -179,8 +179,8 @@ export default function AuditLogPage() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Card>
-        <TableContainer>
-          <Table size="small">
+        <TableContainer sx={{ overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 700 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: 'primary.main' }}>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Timestamp</TableCell>
