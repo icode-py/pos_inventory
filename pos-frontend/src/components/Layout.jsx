@@ -28,12 +28,13 @@ import {
   LightMode as LightModeIcon,
   DarkMode as DarkModeIcon,
   ManageAccounts as ManageAccountsIcon,
+  Lock as LockIcon,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 import { useOffline } from "../context/OfflineManager";
 import { useColorMode } from "../context/ThemeContext";
-import { useStore } from "../context/StoreContext";
+import { useStore, TIER_LABELS } from "../context/StoreContext";
 import axiosInstance from "../utils/axiosInstance";
 
 const drawerWidth = 280;
@@ -42,7 +43,7 @@ const Layout = ({ children }) => {
   const { user, logoutUser } = useContext(AuthContext);
   const { isOnline, pendingSales } = useOffline();
   const { mode, toggleColorMode } = useColorMode();
-  const { store } = useStore();
+  const { store, hasFeature } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
@@ -145,17 +146,18 @@ const Layout = ({ children }) => {
 
   const isManagerOrAdmin = user?.role === 'manager' || user?.role === 'admin';
 
-  const menuItems = [
-    { text: "Dashboard", icon: <DashboardIcon />, path: "/dashboard" },
-    { text: "POS Terminal", icon: <ShoppingCartIcon />, path: "/salespage" },
-    { text: "Products", icon: <InventoryIcon />, path: "/products" },
-    { text: "Restock", icon: <RestockIcon />, path: "/restock", restricted: true },
-    { text: "Sales Reports", icon: <TrendingUpIcon />, path: "/reports/sales", restricted: true },
-    { text: "Customers", icon: <PeopleIcon />, path: "/customers", restricted: true },
-    { text: "Staff", icon: <ManageAccountsIcon />, path: "/staff", restricted: true },
-    { text: "Audit Log", icon: <AuditIcon />, path: "/audit-log", restricted: true },
-    { text: "Settings", icon: <SettingsIcon />, path: "/settings" },
-  ].filter(item => !item.restricted || isManagerOrAdmin);
+  const allMenuItems = [
+    { text: "Dashboard",    icon: <DashboardIcon />,       path: "/dashboard" },
+    { text: "POS Terminal", icon: <ShoppingCartIcon />,    path: "/salespage" },
+    { text: "Products",     icon: <InventoryIcon />,       path: "/products" },
+    { text: "Restock",      icon: <RestockIcon />,         path: "/restock",        restricted: true },
+    { text: "Sales Reports",icon: <TrendingUpIcon />,      path: "/reports/sales",  restricted: true },
+    { text: "Customers",    icon: <PeopleIcon />,          path: "/customers",      restricted: true, feature: 'customer_loyalty' },
+    { text: "Staff",        icon: <ManageAccountsIcon />,  path: "/staff",          restricted: true },
+    { text: "Audit Log",    icon: <AuditIcon />,           path: "/audit-log",      restricted: true, feature: 'audit_log' },
+    { text: "Settings",     icon: <SettingsIcon />,        path: "/settings" },
+  ];
+  const menuItems = allMenuItems.filter(item => !item.restricted || isManagerOrAdmin);
 
   const formatCurrency = (amount) => {
     return `₦${parseFloat(amount || 0).toLocaleString('en-NG', {
@@ -218,52 +220,61 @@ const Layout = ({ children }) => {
 
       {/* Navigation Menu */}
       <List sx={{ px: 1, flexGrow: 1, py: 1, overflow: 'auto' }}>
-        {menuItems.map((item) => (
-          <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
-            <ListItemButton
-              onClick={() => {
-                navigate(item.path);
-                if (isMobile) setMobileOpen(false);
-              }}
-              selected={location.pathname === item.path}
-              sx={{
-                borderRadius: 2,
-                py: 1.2,
-                '&.Mui-selected': {
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  color: 'white',
-                  boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
-                  '& .MuiListItemIcon-root': {
-                    color: 'white',
-                  },
-                  '&:hover': {
-                    background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
-                  },
-                },
-                '&:hover': {
-                  bgcolor: 'action.hover',
-                  transform: 'translateX(4px)',
-                  transition: 'all 0.2s ease',
-                },
-                transition: 'all 0.2s ease',
-              }}
-            >
-              <ListItemIcon sx={{ 
-                color: location.pathname === item.path ? 'white' : 'primary.main',
-                minWidth: 40 
-              }}>
-                {item.icon}
-              </ListItemIcon>
-              <ListItemText 
-                primary={item.text} 
-                primaryTypographyProps={{
-                  fontWeight: location.pathname === item.path ? 'bold' : 'medium',
-                  fontSize: '0.9rem'
-                }}
-              />
-            </ListItemButton>
-          </ListItem>
-        ))}
+        {menuItems.map((item) => {
+          const locked = item.feature ? !hasFeature(item.feature) : false;
+          const isSelected = location.pathname === item.path;
+          return (
+            <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
+              <Tooltip
+                title={locked ? `Requires ${TIER_LABELS[item.feature === 'audit_log' ? 'GROWTH' : 'GROWTH']} plan — tap to learn more` : ''}
+                placement="right"
+                arrow
+              >
+                <ListItemButton
+                  onClick={() => {
+                    navigate(item.path);
+                    if (isMobile) setMobileOpen(false);
+                  }}
+                  selected={isSelected && !locked}
+                  sx={{
+                    borderRadius: 2,
+                    py: 1.2,
+                    opacity: locked ? 0.6 : 1,
+                    '&.Mui-selected': {
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      color: 'white',
+                      boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                      '& .MuiListItemIcon-root': { color: 'white' },
+                      '&:hover': { background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)' },
+                    },
+                    '&:hover': {
+                      bgcolor: 'action.hover',
+                      transform: 'translateX(4px)',
+                      transition: 'all 0.2s ease',
+                    },
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  <ListItemIcon sx={{
+                    color: isSelected && !locked ? 'white' : locked ? 'text.disabled' : 'primary.main',
+                    minWidth: 40,
+                  }}>
+                    {item.icon}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={item.text}
+                    primaryTypographyProps={{
+                      fontWeight: isSelected && !locked ? 'bold' : 'medium',
+                      fontSize: '0.9rem',
+                      color: locked ? 'text.disabled' : 'inherit',
+                    }}
+                  />
+                  {locked && <LockIcon sx={{ fontSize: 14, color: 'text.disabled', ml: 0.5 }} />}
+                </ListItemButton>
+              </Tooltip>
+            </ListItem>
+          );
+        })}
       </List>
 
       {/* Today's Performance Footer - Real-time Updates */}

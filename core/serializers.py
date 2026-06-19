@@ -432,4 +432,5 @@ class AuditLogSerializer(serializers.ModelSerializer):
 class StoreSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = StoreSettings
-        fields = ['name', 'tagline', 'phone', 'address', 'email', 'receipt_footer']
+        fields = ['name', 'tagline', 'phone', 'address', 'email', 'receipt_footer', 'plan_tier']
+        read_only_fields = ['plan_tier']

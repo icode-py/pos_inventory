@@ -183,12 +183,20 @@ class AuditLog(models.Model):
 
 
 class StoreSettings(models.Model):
+    TIER_CHOICES = [
+        ('STARTER',  'Starter'),
+        ('GROWTH',   'Growth'),
+        ('BUSINESS', 'Business'),
+    ]
+
     name            = models.CharField(max_length=100, default='My Store')
     tagline         = models.CharField(max_length=200, blank=True, default='Modern Point of Sale')
     phone           = models.CharField(max_length=20,  blank=True)
     address         = models.CharField(max_length=200, blank=True)
     email           = models.EmailField(blank=True)
     receipt_footer  = models.CharField(max_length=200, blank=True, default='Thank you for your business!')
+    # Subscription plan — set this once per client deployment
+    plan_tier       = models.CharField(max_length=10, choices=TIER_CHOICES, default='BUSINESS')
 
     class Meta:
         verbose_name_plural = 'Store Settings'

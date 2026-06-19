@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useStore } from "../context/StoreContext";
 import axiosInstance from "../utils/axiosInstance";
 import {
   Box,
@@ -69,6 +70,8 @@ ChartJS.register(
 );
 
 const SalesReport = () => {
+  const { hasFeature } = useStore();
+  const canViewMargin = hasFeature('margin_analytics');
   const [cashiers, setCashiers] = useState([]);
   const [products, setProducts] = useState([]);
   const [filters, setFilters] = useState({
@@ -120,13 +123,14 @@ const SalesReport = () => {
         product_id: filters.product,
       };
 
-      const [res, marginRes] = await Promise.all([
-        axiosInstance.get("sales-report/", { params }),
-        axiosInstance.get("margin-report/", { params }).catch(() => ({ data: null })),
-      ]);
+      const requests = [axiosInstance.get("sales-report/", { params })];
+      if (canViewMargin) {
+        requests.push(axiosInstance.get("margin-report/", { params }).catch(() => ({ data: null })));
+      }
+      const [res, marginRes] = await Promise.all(requests);
       setSales(res.data.sales || []);
       setSummary(res.data.daily_summary || []);
-      setMarginData(marginRes.data);
+      setMarginData(canViewMargin ? (marginRes?.data ?? null) : null);
       calculateAnalytics(res.data.sales || [], res.data.daily_summary || []);
       calculateQuickStats(res.data.sales || [], res.data.daily_summary || []);
     } catch (err) {
@@ -1013,7 +1017,7 @@ const SalesReport = () => {
           <Tab label="Sales Data" />
           <Tab label="Product Analytics" />
           <Tab label="Performance" />
-          <Tab label="Margin Analytics" />
+          {canViewMargin && <Tab label="Margin Analytics" />}
         </Tabs>
       </Paper>
 
@@ -1179,7 +1183,7 @@ const SalesReport = () => {
           {activeTab === 3 && <PerformanceTab />}
 
           {/* Margin Analytics Tab */}
-          {activeTab === 4 && (
+          {canViewMargin && activeTab === 4 && (
             marginData ? (
               <Grid container spacing={3}>
                 {/* Summary Cards */}

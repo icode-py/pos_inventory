@@ -14,7 +14,8 @@ from django.utils.dateparse import parse_date
 from django.utils import timezone
 from datetime import timedelta
 from django.http import HttpResponse
-from .permissions import IsManagerOrAdmin, IsCashier, IsCashierOrManager
+from .permissions import IsManagerOrAdmin, IsCashier, IsCashierOrManager, make_tier_permission, tier_block_response
+from .tier_config import CASHIER_LIMITS
 from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, AuditLog, StoreSettings
 from .serializers import (
     CategorySerializer,
@@ -107,6 +108,24 @@ class RestockHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 @throttle_classes([BurstRateThrottle])
 def register_staff(request):
     """Create a new staff account. Requires manager or admin role."""
+    # Enforce per-tier cashier limit
+    settings_obj = StoreSettings.load()
+    limit = CASHIER_LIMITS.get(settings_obj.plan_tier)
+    if limit is not None:
+        is_cashier_role = request.data.get('is_cashier', False)
+        if is_cashier_role:
+            current_cashiers = Staff.objects.filter(is_cashier=True, is_active=True).count()
+            if current_cashiers >= limit:
+                return Response({
+                    'error': (
+                        f'Your {settings_obj.plan_tier.capitalize()} plan allows a maximum of {limit} '
+                        f'cashier account{"s" if limit != 1 else ""}. '
+                        f'Upgrade your plan to add more cashiers.'
+                    ),
+                    'upgrade_required': True,
+                    'current_tier': settings_obj.plan_tier,
+                    'cashier_limit': limit,
+                }, status=status.HTTP_403_FORBIDDEN)
     try:
         serializer = StaffSerializer(data=request.data)
         if serializer.is_valid():
@@ -333,7 +352,7 @@ class CustomerViewSet(AuditMixin, viewsets.ModelViewSet):
     queryset = Customer.objects.all().order_by('-created_at')
     pagination_class = None  # stats cards on customers page need the full list
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, make_tier_permission('customer_loyalty')]
     # throttle_classes = [SustainedRateThrottle]
     
     def get_queryset(self):
@@ -351,7 +370,7 @@ class CustomerViewSet(AuditMixin, viewsets.ModelViewSet):
 
 class CustomerTransactionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CustomerTransactionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, make_tier_permission('customer_loyalty')]
     pagination_class = None
     
     def get_queryset(self):
@@ -364,14 +383,16 @@ class CustomerTransactionViewSet(viewsets.ReadOnlyModelViewSet):
 class LoyaltySettingsViewSet(viewsets.ModelViewSet):
     queryset = LoyaltySettings.objects.all()
     serializer_class = LoyaltySettingsSerializer
-    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin, make_tier_permission('customer_loyalty')]
     pagination_class = None
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-# @throttle_classes([BurstRateThrottle])
 def redeem_loyalty_points(request):
+    block = tier_block_response('customer_loyalty')
+    if block:
+        return Response(block, status=status.HTTP_403_FORBIDDEN)
     customer_id = request.data.get('customer_id')
     points_to_redeem = request.data.get('points_to_redeem')
     
@@ -406,7 +427,7 @@ def redeem_loyalty_points(request):
 class BulkDiscountViewSet(viewsets.ModelViewSet):
     queryset = BulkDiscount.objects.all()
     serializer_class = BulkDiscountSerializer
-    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin, make_tier_permission('bulk_discounts')]
     pagination_class = None
 
 
@@ -449,7 +470,7 @@ class AuditedProductViewSet(AuditMixin, viewsets.ModelViewSet):
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = AuditLog.objects.select_related('changed_by').all()
     serializer_class = AuditLogSerializer
-    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin, make_tier_permission('audit_log')]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -498,6 +519,9 @@ TEMPLATE_HEADERS = [
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 def download_product_template(request):
+    block = tier_block_response('bulk_upload')
+    if block:
+        return Response(block, status=status.HTTP_403_FORBIDDEN)
     wb = openpyxl.Workbook()
 
     # ── Products sheet ────────────────────────────────────────────────────────
@@ -584,6 +608,9 @@ MAX_UPLOAD_ROWS = 1000
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 def bulk_upload_products(request):
+    block = tier_block_response('bulk_upload')
+    if block:
+        return Response(block, status=status.HTTP_403_FORBIDDEN)
     file = request.FILES.get('file')
     if not file:
         return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
@@ -731,6 +758,9 @@ def bulk_upload_products(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 def margin_report(request):
+    block = tier_block_response('margin_analytics')
+    if block:
+        return Response(block, status=status.HTTP_403_FORBIDDEN)
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
     cashier_id = request.GET.get('cashier_id')
