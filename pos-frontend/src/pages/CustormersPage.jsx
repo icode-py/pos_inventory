@@ -20,6 +20,48 @@ import axiosInstance from '../utils/axiosInstance';
 
 const EMPTY_FORM = { phone: '', name: '', email: '', notes: '' };
 
+const CustomerFormFields = ({ data, onChange }) => (
+  <Grid container spacing={2} sx={{ mt: 1 }}>
+    <Grid item size={{ xs: 12 }}>
+      <TextField
+        fullWidth required
+        label="Phone Number"
+        value={data.phone}
+        onChange={(e) => onChange('phone', e.target.value)}
+        placeholder="e.g. 08012345678"
+        InputProps={{ startAdornment: <PhoneIcon sx={{ mr: 1, color: 'text.secondary' }} /> }}
+      />
+    </Grid>
+    <Grid item size={{ xs: 12 }}>
+      <TextField
+        fullWidth required
+        label="Full Name"
+        value={data.name}
+        onChange={(e) => onChange('name', e.target.value)}
+      />
+    </Grid>
+    <Grid item size={{ xs: 12 }}>
+      <TextField
+        fullWidth
+        label="Email Address"
+        type="email"
+        value={data.email}
+        onChange={(e) => onChange('email', e.target.value)}
+        InputProps={{ startAdornment: <EmailIcon sx={{ mr: 1, color: 'text.secondary' }} /> }}
+      />
+    </Grid>
+    <Grid item size={{ xs: 12 }}>
+      <TextField
+        fullWidth
+        label="Notes"
+        multiline rows={2}
+        value={data.notes}
+        onChange={(e) => onChange('notes', e.target.value)}
+      />
+    </Grid>
+  </Grid>
+);
+
 const CustomersPage = () => {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -150,49 +192,6 @@ const CustomersPage = () => {
     return { label: 'Bronze', color: 'secondary' };
   };
 
-  // ── Shared form fields component ─────────────────────────────────────────────
-  const CustomerFormFields = ({ data, onChange }) => (
-    <Grid container spacing={2} sx={{ mt: 1 }}>
-      <Grid item size={{ xs: 12 }}>
-        <TextField
-          fullWidth required
-          label="Phone Number"
-          value={data.phone}
-          onChange={(e) => onChange('phone', e.target.value)}
-          placeholder="e.g. 08012345678"
-          InputProps={{ startAdornment: <PhoneIcon sx={{ mr: 1, color: 'text.secondary' }} /> }}
-        />
-      </Grid>
-      <Grid item size={{ xs: 12 }}>
-        <TextField
-          fullWidth required
-          label="Full Name"
-          value={data.name}
-          onChange={(e) => onChange('name', e.target.value)}
-        />
-      </Grid>
-      <Grid item size={{ xs: 12 }}>
-        <TextField
-          fullWidth
-          label="Email Address"
-          type="email"
-          value={data.email}
-          onChange={(e) => onChange('email', e.target.value)}
-          InputProps={{ startAdornment: <EmailIcon sx={{ mr: 1, color: 'text.secondary' }} /> }}
-        />
-      </Grid>
-      <Grid item size={{ xs: 12 }}>
-        <TextField
-          fullWidth
-          label="Notes"
-          multiline rows={2}
-          value={data.notes}
-          onChange={(e) => onChange('notes', e.target.value)}
-        />
-      </Grid>
-    </Grid>
-  );
-
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       {/* Header */}
@@ -253,16 +252,16 @@ const CustomersPage = () => {
       {/* Customers Table */}
       <Card>
         <CardContent sx={{ p: 0 }}>
-          <TableContainer sx={{ overflowX: 'auto' }}>
-            <Table sx={{ minWidth: 700 }}>
+          <TableContainer>
+            <Table>
               <TableHead>
                 <TableRow sx={{ bgcolor: 'primary.main' }}>
-                  {['Customer', 'Contact', 'Loyalty Points', 'Total Spent', 'Visits', 'Actions'].map((h, i) => (
-                    <TableCell key={h} align={i >= 2 && i <= 4 ? 'right' : i === 5 ? 'center' : 'left'}
-                      sx={{ color: 'white', fontWeight: 'bold' }}>
-                      {h}
-                    </TableCell>
-                  ))}
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Customer</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold', display: { xs: 'none', sm: 'table-cell' } }}>Contact</TableCell>
+                  <TableCell align="right" sx={{ color: 'white', fontWeight: 'bold', display: { xs: 'none', md: 'table-cell' } }}>Points</TableCell>
+                  <TableCell align="right" sx={{ color: 'white', fontWeight: 'bold' }}>Spent</TableCell>
+                  <TableCell align="right" sx={{ color: 'white', fontWeight: 'bold', display: { xs: 'none', sm: 'table-cell' } }}>Visits</TableCell>
+                  <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -271,17 +270,17 @@ const CustomersPage = () => {
                   return (
                     <TableRow key={customer.id} hover>
                       <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                          <Avatar sx={{ bgcolor: 'primary.main' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32, fontSize: '0.85rem' }}>
                             {customer.name.charAt(0).toUpperCase()}
                           </Avatar>
                           <Box>
-                            <Typography variant="body1" fontWeight="medium">{customer.name}</Typography>
+                            <Typography variant="body2" fontWeight="medium">{customer.name}</Typography>
                             <Chip label={tier.label} size="small" color={tier.color} />
                           </Box>
                         </Box>
                       </TableCell>
-                      <TableCell>
+                      <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                         <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <PhoneIcon fontSize="small" /> {customer.phone}
                         </Typography>
@@ -291,18 +290,18 @@ const CustomersPage = () => {
                           </Typography>
                         )}
                       </TableCell>
-                      <TableCell align="right">
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
-                          <LoyaltyIcon color="primary" />
-                          <Typography fontWeight="bold">{customer.loyalty_points}</Typography>
+                      <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
+                          <LoyaltyIcon color="primary" fontSize="small" />
+                          <Typography variant="body2" fontWeight="bold">{customer.loyalty_points}</Typography>
                         </Box>
                       </TableCell>
                       <TableCell align="right">
-                        <Typography fontWeight="bold" color="primary">
+                        <Typography variant="body2" fontWeight="bold" color="primary">
                           ₦{parseFloat(customer.total_spent).toLocaleString()}
                         </Typography>
                       </TableCell>
-                      <TableCell align="right">{customer.total_visits}</TableCell>
+                      <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{customer.total_visits}</TableCell>
                       <TableCell align="center">
                         <Tooltip title="View details">
                           <IconButton size="small" color="info" onClick={() => setViewCustomer(customer)}>
