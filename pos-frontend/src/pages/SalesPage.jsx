@@ -711,7 +711,7 @@ const SalesPage = () => {
             )}
           </Box>
         </TableCell>
-        <TableCell>
+        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
           <Box>
             <Typography variant="body2">
               {product.is_bulk_product ?
@@ -934,7 +934,7 @@ const SalesPage = () => {
         </Grid>
 
         {/* Main Content Area */}
-        <Grid container spacing={3} sx={{ width: '100%', margin: 0 }}>
+        <Grid container size={{ xs: 12 }} spacing={{ xs: 1.5, md: 3 }}>
           {/* Product Selection Card */}
           <Grid item size={{ xs: 12, md: 6 }}>
             <Card sx={{ height: '100%' }}>
@@ -1103,11 +1103,11 @@ const SalesPage = () => {
                   )}
                 </Box>
                 <TableContainer sx={{ maxHeight: 400, overflow: 'auto' }}>
-                  <Table size="small" sx={{ minWidth: 600 }}>
+                  <Table size="small">
                     <TableHead>
                       <TableRow>
                         <TableCell>Product</TableCell>
-                        <TableCell>Price</TableCell>
+                        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Price</TableCell>
                         <TableCell>Qty</TableCell>
                         <TableCell>Total</TableCell>
                         <TableCell>Actions</TableCell>

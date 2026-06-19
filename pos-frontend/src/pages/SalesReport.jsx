@@ -542,17 +542,17 @@ const SalesReport = () => {
               <Typography variant="h6" gutterBottom>
                 Detailed Product Performance
               </Typography>
-              <TableContainer sx={{ overflowX: 'auto' }}>
-              <Table size="small" sx={{ minWidth: 700 }}>
+              <TableContainer>
+              <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>Product</TableCell>
-                    <TableCell>Category</TableCell>
-                    <TableCell align="right">Quantity Sold</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Category</TableCell>
+                    <TableCell align="right">Qty Sold</TableCell>
                     <TableCell align="right">Revenue</TableCell>
-                    <TableCell align="right">Avg. Price</TableCell>
-                    <TableCell align="right">Transactions</TableCell>
-                    <TableCell align="right">Revenue %</TableCell>
+                    <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Avg. Price</TableCell>
+                    <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>Transactions</TableCell>
+                    <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>Revenue %</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -560,21 +560,21 @@ const SalesReport = () => {
                     const totalRevenue = quickStats?.totalRevenue || 1;
                     const revenuePercentage = (data.revenue / totalRevenue) * 100;
                     const avgPrice = data.quantity > 0 ? data.revenue / data.quantity : 0;
-                    
+
                     return (
                       <TableRow key={String(product)} hover>
                         <TableCell>
                           <Box display="flex" alignItems="center">
-                            <Chip 
-                              label={index + 1} 
-                              size="small" 
-                              color="primary" 
+                            <Chip
+                              label={index + 1}
+                              size="small"
+                              color="primary"
                               sx={{ mr: 1, minWidth: 30 }}
                             />
                             <Typography variant="body2">{String(product)}</Typography>
                           </Box>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                           <Chip label={String(data.category)} size="small" variant="outlined" />
                         </TableCell>
                         <TableCell align="right">
@@ -587,17 +587,17 @@ const SalesReport = () => {
                             {formatCurrency(data.revenue)}
                           </Typography>
                         </TableCell>
-                        <TableCell align="right">
+                        <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                           {formatCurrency(avgPrice)}
                         </TableCell>
-                        <TableCell align="right">
+                        <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                           {formatNumber(data.transactions)}
                         </TableCell>
-                        <TableCell align="right">
+                        <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                           <Box display="flex" alignItems="center" justifyContent="flex-end">
-                            <LinearProgress 
-                              variant="determinate" 
-                              value={revenuePercentage} 
+                            <LinearProgress
+                              variant="determinate"
+                              value={revenuePercentage}
                               sx={{ width: 60, mr: 1, height: 8 }}
                             />
                             <Typography variant="body2">
@@ -763,16 +763,16 @@ const SalesReport = () => {
               <Typography variant="h6" gutterBottom>
                 Category Performance
               </Typography>
-              <TableContainer sx={{ overflowX: 'auto' }}>
-              <Table size="small" sx={{ minWidth: 700 }}>
+              <TableContainer>
+              <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>Category</TableCell>
                     <TableCell align="right">Revenue</TableCell>
-                    <TableCell align="right">Transactions</TableCell>
-                    <TableCell align="right">Products</TableCell>
-                    <TableCell align="right">Avg. Revenue/Tx</TableCell>
-                    <TableCell align="center">Performance</TableCell>
+                    <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Transactions</TableCell>
+                    <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Products</TableCell>
+                    <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>Avg. Revenue/Tx</TableCell>
+                    <TableCell align="center" sx={{ display: { xs: 'none', md: 'table-cell' } }}>Performance</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -788,17 +788,17 @@ const SalesReport = () => {
                             {formatCurrency(data.revenue)}
                           </Typography>
                         </TableCell>
-                        <TableCell align="right">
+                        <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                           {formatNumber(data.transactions)}
                         </TableCell>
-                        <TableCell align="right">
+                        <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                           {data.productCount}
                         </TableCell>
-                        <TableCell align="right">
+                        <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                           {formatCurrency(data.transactions > 0 ? data.revenue / data.transactions : 0)}
                         </TableCell>
-                        <TableCell align="center">
-                          <Chip 
+                        <TableCell align="center" sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+                          <Chip
                             label={data.revenue > 10000 ? "High" : data.revenue > 5000 ? "Medium" : "Low"}
                             color={data.revenue > 10000 ? "success" : data.revenue > 5000 ? "warning" : "default"}
                             size="small"
@@ -1132,17 +1132,17 @@ const SalesReport = () => {
                     <Typography variant="h6" gutterBottom>
                       Sales Transactions ({sales.length} total)
                     </Typography>
-                    <Paper elevation={0} sx={{ maxHeight: 400, overflow: "auto" }}>
-                      <Table size="small" sx={{ minWidth: 700 }}>
+                    <TableContainer sx={{ maxHeight: 400, overflow: "auto" }}>
+                      <Table size="small">
                         <TableHead>
                           <TableRow>
                             <TableCell>ID</TableCell>
                             <TableCell>Cashier</TableCell>
                             <TableCell>Total</TableCell>
-                            <TableCell>Paid</TableCell>
-                            <TableCell>Change</TableCell>
+                            <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Paid</TableCell>
+                            <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Change</TableCell>
                             <TableCell>Date</TableCell>
-                            <TableCell>Items</TableCell>
+                            <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Items</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -1151,21 +1151,21 @@ const SalesReport = () => {
                               <TableCell>#{sale.id}</TableCell>
                               <TableCell>{sale.cashier}</TableCell>
                               <TableCell>{formatCurrency(Number(sale.total_amount) || 0)}</TableCell>
-                              <TableCell>{formatCurrency(Number(sale.paid_amount) || 0)}</TableCell>
-                              <TableCell>{formatCurrency(Number(sale.change_given) || 0)}</TableCell>
+                              <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{formatCurrency(Number(sale.paid_amount) || 0)}</TableCell>
+                              <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{formatCurrency(Number(sale.change_given) || 0)}</TableCell>
                               <TableCell>{new Date(sale.created_at).toLocaleDateString()}</TableCell>
-                              <TableCell>
-                                <Chip 
-                                  size="small" 
-                                  label={sale.items?.length || 0} 
-                                  variant="outlined" 
+                              <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+                                <Chip
+                                  size="small"
+                                  label={sale.items?.length || 0}
+                                  variant="outlined"
                                 />
                               </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
                       </Table>
-                    </Paper>
+                    </TableContainer>
                   </CardContent>
                 </Card>
               </Grid>
@@ -1243,28 +1243,28 @@ const SalesReport = () => {
                   <Card>
                     <CardContent>
                       <Typography variant="h6" gutterBottom>Product Margin Breakdown</Typography>
-                      <TableContainer sx={{ overflowX: 'auto' }}>
-                      <Table size="small" sx={{ minWidth: 700 }}>
+                      <TableContainer>
+                      <Table size="small">
                         <TableHead>
                           <TableRow>
                             <TableCell>Product</TableCell>
-                            <TableCell>Category</TableCell>
-                            <TableCell align="right">Units Sold</TableCell>
+                            <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Category</TableCell>
+                            <TableCell align="right">Units</TableCell>
                             <TableCell align="right">Revenue</TableCell>
-                            <TableCell align="right">Cost</TableCell>
-                            <TableCell align="right">Gross Profit</TableCell>
-                            <TableCell align="right">Margin %</TableCell>
+                            <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Cost</TableCell>
+                            <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Profit</TableCell>
+                            <TableCell align="right">Margin</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
                           {marginData.by_product.map((p) => (
                             <TableRow key={p.id} hover>
                               <TableCell><Typography variant="body2" fontWeight="medium">{p.name}</Typography></TableCell>
-                              <TableCell><Chip label={p.category} size="small" variant="outlined" /></TableCell>
+                              <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}><Chip label={p.category} size="small" variant="outlined" /></TableCell>
                               <TableCell align="right">{p.units_sold}</TableCell>
                               <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 'bold' }}>{formatCurrency(p.revenue)}</TableCell>
-                              <TableCell align="right" sx={{ color: 'warning.main' }}>{formatCurrency(p.cost)}</TableCell>
-                              <TableCell align="right" sx={{ color: p.gross_profit >= 0 ? 'success.main' : 'error.main', fontWeight: 'bold' }}>{formatCurrency(p.gross_profit)}</TableCell>
+                              <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' }, color: 'warning.main' }}>{formatCurrency(p.cost)}</TableCell>
+                              <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' }, color: p.gross_profit >= 0 ? 'success.main' : 'error.main', fontWeight: 'bold' }}>{formatCurrency(p.gross_profit)}</TableCell>
                               <TableCell align="right">
                                 <Chip
                                   label={`${p.margin_pct}%`}

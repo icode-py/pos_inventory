@@ -244,14 +244,14 @@ const loadRestockHistory = () => {
             </Typography>
           </Box>
           
-          <TableContainer sx={{ overflowX: 'auto' }}>
-            <Table sx={{ minWidth: 600 }}>
+          <TableContainer>
+            <Table>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 'bold' }}>Product</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Quantity Added</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>By</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Date & Time</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', display: { xs: 'none', sm: 'table-cell' } }}>Date & Time</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -290,7 +290,7 @@ const loadRestockHistory = () => {
                         {entry.restocked_by_username}
                       </Typography>
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                       <Typography variant="body2" color="text.secondary">
                         {new Date(entry.restocked_at).toLocaleString()}
                       </Typography>
