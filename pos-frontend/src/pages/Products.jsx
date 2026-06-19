@@ -8,6 +8,7 @@ import {
 } from "@mui/material";
 import { useEffect, useRef, useState, useCallback, useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
+import { useStore } from "../context/StoreContext";
 import axiosInstance from "../utils/axiosInstance";
 import AddProductModal from "../components/AddProductModal";
 import CategoryManagerModal from '../components/CategoryManagerModal';
@@ -52,7 +53,9 @@ const formatCurrency = (amount) => {
 
 function ProductsPage() {
   const { user } = useContext(AuthContext);
+  const { hasFeature } = useStore();
   const canWrite = user?.role === 'admin' || user?.role === 'manager';
+  const canBulkUpload = canWrite && hasFeature('bulk_upload');
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -396,13 +399,17 @@ function ProductsPage() {
                   <Button variant="outlined" startIcon={<CategoryIcon />} onClick={() => setCategoryModalOpen(true)}>
                     Categories
                   </Button>
-                  <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleDownloadTemplate}>
-                    Template
-                  </Button>
-                  <Button variant="outlined" startIcon={<UploadIcon />} onClick={() => fileInputRef.current?.click()}>
-                    Upload Excel
-                  </Button>
-                  <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileUpload} />
+                  {canBulkUpload && (
+                    <>
+                      <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleDownloadTemplate}>
+                        Template
+                      </Button>
+                      <Button variant="outlined" startIcon={<UploadIcon />} onClick={() => fileInputRef.current?.click()}>
+                        Upload Excel
+                      </Button>
+                      <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileUpload} />
+                    </>
+                  )}
                   <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddModalOpen(true)} sx={{ borderRadius: 2 }}>
                     Add Product
                   </Button>

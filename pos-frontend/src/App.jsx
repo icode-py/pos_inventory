@@ -19,6 +19,7 @@ import BulkDiscountManager from './components/BulkDiscountManager';
 import AuditLogPage from './pages/AuditLogPage';
 import SettingsPage from './pages/SettingsPage';
 import StaffPage from './pages/StaffPage';
+import PlanGuard from './components/PlanGuard';
 
 function App() {
   return (
@@ -91,23 +92,27 @@ function App() {
               </ProtectedRoute>
             } />
 
-            {/* Customers - Accessible to Manager and Admin */}
+            {/* Customers - Accessible to Manager and Admin (Growth+ plan) */}
             <Route path="/customers" element={
               <ProtectedRoute>
                 <RoleProtectedRoute allowedRoles={['manager', 'admin']}>
                   <Layout>
-                    <CustomersPage />
+                    <PlanGuard feature="customer_loyalty">
+                      <CustomersPage />
+                    </PlanGuard>
                   </Layout>
                 </RoleProtectedRoute>
               </ProtectedRoute>
             } />
 
-            {/* Customer Profile - Accessible to Manager and Admin */}
+            {/* Customer Profile - Accessible to Manager and Admin (Growth+ plan) */}
             <Route path="/customers/:id" element={
               <ProtectedRoute>
                 <RoleProtectedRoute allowedRoles={['manager', 'admin']}>
                   <Layout>
-                    <CustomerProfile />
+                    <PlanGuard feature="customer_loyalty">
+                      <CustomerProfile />
+                    </PlanGuard>
                   </Layout>
                 </RoleProtectedRoute>
               </ProtectedRoute>
@@ -128,7 +133,9 @@ function App() {
               <ProtectedRoute>
                 <RoleProtectedRoute allowedRoles={['manager', 'admin']}>
                   <Layout>
-                    <AuditLogPage />
+                    <PlanGuard feature="audit_log">
+                      <AuditLogPage />
+                    </PlanGuard>
                   </Layout>
                 </RoleProtectedRoute>
               </ProtectedRoute>
