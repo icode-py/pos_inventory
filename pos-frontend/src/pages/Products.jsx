@@ -442,12 +442,12 @@ function ProductsPage() {
               <Typography>Loading products...</Typography>
             </Box>
           ) : (
-            <TableContainer sx={{ overflowX: 'auto' }}>
-              <Table sx={{ minWidth: 800 }}>
+            <TableContainer>
+              <Table>
                 <TableHead>
                   <TableRow sx={{ bgcolor: 'primary.main' }}>
                     {canWrite && (
-                      <TableCell padding="checkbox" sx={{ bgcolor: 'primary.main' }}>
+                      <TableCell padding="checkbox" sx={{ bgcolor: 'primary.main', display: { xs: 'none', sm: 'table-cell' } }}>
                         <Checkbox
                           size="small"
                           sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }}
@@ -458,14 +458,14 @@ function ProductsPage() {
                       </TableCell>
                     )}
                     {[
-                      { id: 'name',   label: 'Product',     align: 'left'  },
-                      { id: null,     label: 'Category',    align: 'left'  },
-                      { id: 'price',  label: 'Price',       align: 'right' },
-                      { id: 'stock',  label: 'Stock Level', align: 'center'},
-                      { id: 'cost',   label: 'Cost',        align: 'right' },
-                      { id: 'margin', label: 'Margin',      align: 'right' },
-                      { id: null,     label: 'Actions',     align: 'center'},
-                    ].map(({ id, label, align }) => (
+                      { id: 'name',   label: 'Product',  align: 'left',   hide: false },
+                      { id: null,     label: 'Category', align: 'left',   hide: 'xs'  },
+                      { id: 'price',  label: 'Price',    align: 'right',  hide: false },
+                      { id: 'stock',  label: 'Stock',    align: 'center', hide: 'xs'  },
+                      { id: 'cost',   label: 'Cost',     align: 'right',  hide: 'xs'  },
+                      { id: 'margin', label: 'Margin',   align: 'right',  hide: 'xs'  },
+                      { id: null,     label: 'Actions',  align: 'center', hide: false },
+                    ].map(({ id, label, align, hide }) => (
                       <TableCell
                         key={label}
                         align={align}
@@ -476,6 +476,7 @@ function ProductsPage() {
                           userSelect: 'none',
                           '&:hover': id ? { bgcolor: 'primary.dark' } : {},
                           whiteSpace: 'nowrap',
+                          ...(hide === 'xs' && { display: { xs: 'none', sm: 'table-cell' } }),
                         }}
                       >
                         <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
@@ -505,7 +506,7 @@ function ProductsPage() {
                         }}
                       >
                         {canWrite && (
-                          <TableCell padding="checkbox">
+                          <TableCell padding="checkbox" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                             <Checkbox
                               size="small"
                               checked={selected.includes(product.id)}
@@ -514,24 +515,23 @@ function ProductsPage() {
                           </TableCell>
                         )}
                         <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Avatar sx={{ bgcolor: 'primary.main' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32, fontSize: '0.85rem' }}>
                               {product.name.charAt(0).toUpperCase()}
                             </Avatar>
                             <Box>
-                              <Typography variant="body1" fontWeight="medium">
+                              <Typography variant="body2" fontWeight="medium">
                                 {product.name}
                               </Typography>
                               {product.barcode && (
-                                <Typography variant="caption" color="textSecondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <BarcodeIcon fontSize="small" />
+                                <Typography variant="caption" color="textSecondary">
                                   {product.barcode}
                                 </Typography>
                               )}
                             </Box>
                           </Box>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                           <Chip
                             label={product.category?.name || 'Uncategorized'}
                             size="small"
@@ -540,11 +540,11 @@ function ProductsPage() {
                           />
                         </TableCell>
                         <TableCell align="right">
-                          <Typography variant="body1" fontWeight="bold" color="primary">
+                          <Typography variant="body2" fontWeight="bold" color="primary">
                             {formatCurrency(product.price)}
                           </Typography>
                         </TableCell>
-                        <TableCell align="center">
+                        <TableCell align="center" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <Tooltip title={stockStatus.label}>
                               {stockStatus.icon}
@@ -562,12 +562,12 @@ function ProductsPage() {
                             </Box>
                           </Box>
                         </TableCell>
-                        <TableCell align="right">
+                        <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                           <Typography variant="body2">
                             {formatCurrency(product.cost_price)}
                           </Typography>
                         </TableCell>
-                        <TableCell align="right">
+                        <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                           <Chip
                             label={`${profitMargin}%`}
                             size="small"

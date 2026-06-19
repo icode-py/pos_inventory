@@ -58,14 +58,14 @@ function AuditRow({ log }) {
             size="small"
           />
         </TableCell>
-        <TableCell>
+        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
           <Chip label={log.model_name} size="small" variant="outlined" />
         </TableCell>
-        <TableCell>
+        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
           <Typography variant="body2">{log.object_repr}</Typography>
           <Typography variant="caption" color="text.secondary">ID: {log.object_id}</Typography>
         </TableCell>
-        <TableCell>
+        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
           <Typography variant="body2">{log.changed_by_username || '—'}</Typography>
         </TableCell>
         <TableCell align="center">
@@ -180,14 +180,14 @@ export default function AuditLogPage() {
 
       <Card>
         <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ minWidth: 700 }}>
+          <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: 'primary.main' }}>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Timestamp</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Action</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Model</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Object</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Changed By</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold', display: { xs: 'none', sm: 'table-cell' } }}>Model</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold', display: { xs: 'none', sm: 'table-cell' } }}>Object</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold', display: { xs: 'none', md: 'table-cell' } }}>Changed By</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Details</TableCell>
               </TableRow>
             </TableHead>

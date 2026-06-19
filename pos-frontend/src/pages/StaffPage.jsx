@@ -245,14 +245,14 @@ export default function StaffPage() {
       </Paper>
 
       {/* Table */}
-      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
-        <Table sx={{ minWidth: 650 }}>
+      <TableContainer component={Paper}>
+        <Table>
           <TableHead>
             <TableRow sx={{ '& th': { fontWeight: 'bold', bgcolor: 'action.hover' } }}>
               <TableCell>Username</TableCell>
               <TableCell>Role</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Joined</TableCell>
+              <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Status</TableCell>
+              <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Joined</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -288,7 +288,7 @@ export default function StaffPage() {
                   <TableCell>
                     <Chip label={role.label} color={role.color} size="small" />
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                     <Chip
                       label={member.is_active ? 'Active' : 'Inactive'}
                       color={member.is_active ? 'success' : 'default'}
@@ -296,7 +296,7 @@ export default function StaffPage() {
                       variant={member.is_active ? 'filled' : 'outlined'}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                     {member.date_joined
                       ? new Date(member.date_joined).toLocaleDateString()
                       : '—'}
