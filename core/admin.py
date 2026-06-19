@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, Product, SaleTransaction, SaleItem, Staff,  Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount
+from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, StoreSettings
 from django.contrib.auth.admin import UserAdmin
 from django.utils.translation import gettext_lazy as _
 # Register your models here.
@@ -28,6 +28,12 @@ class StaffAdmin(UserAdmin):
     add_fieldsets = UserAdmin.add_fieldsets + (
         (_('Custom Roles'), {'fields': ('is_cashier', 'is_manager', 'is_admin')}),
     )
+
+
+@admin.register(StoreSettings)
+class StoreSettingsAdmin(admin.ModelAdmin):
+    list_display = ['name', 'plan_tier', 'phone', 'email']
+    fields = ['name', 'tagline', 'phone', 'address', 'email', 'receipt_footer', 'plan_tier']
 
 
 @admin.register(BulkDiscount)
