@@ -30,11 +30,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        
-        # Log login attempts for security monitoring
         user = self.user
-        print(f"SECURITY: User {user.username} logged in from {self.context['request'].META.get('REMOTE_ADDR')}")
-        
+        ip = self.context['request'].META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() \
+             or self.context['request'].META.get('REMOTE_ADDR', 'unknown')
+        logger.info('Login: user=%s ip=%s', user.username, ip)
         return data
 
 
@@ -46,11 +45,6 @@ class CategorySerializer(serializers.ModelSerializer):
     def validate_name(self, value):
         if len(value.strip()) < 2:
             raise serializers.ValidationError("Category name must be at least 2 characters long")
-        
-        # Prevent SQL injection patterns
-        if any(char in value for char in [';', '--', '/*', '*/', 'xp_']):
-            raise serializers.ValidationError("Invalid characters in category name")
-        
         return value.strip()
 
 
