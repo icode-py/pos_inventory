@@ -141,6 +141,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'core.Staff'
 
 # REST Framework Configuration
+# ── Cache: DatabaseCache so all gunicorn workers share the same counter ────────
+# LocMemCache (Django default) is per-process; with --workers 2 each worker
+# has its own counter, making rate-limiting effectively useless across workers.
+# DatabaseCache uses PostgreSQL (already available) and is shared across all workers.
+# After deploying run: python manage.py createcachetable
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'django_cache_table',
+        'TIMEOUT': 300,
+        'OPTIONS': {
+            'MAX_ENTRIES': 10000,
+        },
+    }
+}
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -161,12 +177,16 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '20/minute',
-        'user': '200/minute',
-        'login': '5/minute',
+        'anon': '30/minute',
+        'user': '300/minute',
+        'login': '5/minute',   # max 5 login attempts per minute per IP
         'burst': '60/minute',
         'sustained': '500/hour',
     },
+    # Render sits behind a proxy — tell DRF to trust 1 proxy hop so it reads
+    # the real client IP from X-Forwarded-For instead of the proxy's IP.
+    # Without this, ALL clients share the same rate-limit bucket (the proxy IP).
+    'NUM_PROXIES': 1,
 }
 
 # JWT Configuration

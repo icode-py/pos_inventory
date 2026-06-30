@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import axiosInstance from '../utils/axiosInstance';
 
 const TIER_HIERARCHY = { STARTER: 0, GROWTH: 1, BUSINESS: 2 };
@@ -40,22 +40,41 @@ export function StoreProvider({ children }) {
     address: '',
     email: '',
     receipt_footer: 'Thank you for your business!',
-    plan_tier: 'BUSINESS',   // default — overwritten once settings load
+    plan_tier: 'STARTER',   // start conservative — overwritten on first fetch
   });
 
-  useEffect(() => {
+  const fetchSettings = useCallback(() => {
     axiosInstance.get('/store-settings/')
       .then(res => setStore(res.data))
       .catch(() => {});
   }, []);
 
-  // Convenience: check if the current plan includes a feature
-  const hasFeature = (feature) => hasFeatureForTier(feature, store.plan_tier);
+  useEffect(() => {
+    // Fetch on mount
+    fetchSettings();
 
+    // Re-fetch whenever the browser tab regains focus — this catches the case
+    // where an admin changes plan_tier in the Django admin panel in another tab
+    // and then comes back to the app without doing a hard refresh.
+    const handleVisibility = () => {
+      if (!document.hidden) fetchSettings();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Also re-fetch every 5 minutes as a safety net
+    const interval = setInterval(fetchSettings, 5 * 60 * 1000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(interval);
+    };
+  }, [fetchSettings]);
+
+  const hasFeature = (feature) => hasFeatureForTier(feature, store.plan_tier);
   const cashierLimit = CASHIER_LIMITS[store.plan_tier] ?? null;
 
   return (
-    <StoreContext.Provider value={{ store, setStore, hasFeature, cashierLimit }}>
+    <StoreContext.Provider value={{ store, setStore, hasFeature, cashierLimit, refreshStore: fetchSettings }}>
       {children}
     </StoreContext.Provider>
   );

@@ -57,7 +57,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 class ProductListView(APIView):
     permission_classes = [IsAuthenticated]
-    # throttle_classes = [SustainedRateThrottle]
+    throttle_classes = [SustainedRateThrottle]
 
     def get(self, request):
         products = Product.objects.all().prefetch_related('bulk_discounts')
@@ -69,14 +69,14 @@ class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated, IsManagerOrAdmin]
-    # throttle_classes = [SustainedRateThrottle]
+    throttle_classes = [SustainedRateThrottle]
 
 
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().prefetch_related('bulk_discounts')
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
-    # throttle_classes = [SustainedRateThrottle]
+    throttle_classes = [SustainedRateThrottle]
 
 
 class SaleTransactionViewSet(viewsets.ModelViewSet):
@@ -190,7 +190,7 @@ def restock_product(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsCashierOrManager])
-# @throttle_classes([SustainedRateThrottle])
+@throttle_classes([SustainedRateThrottle])
 def sales_report(request):
     start_date = request.GET.get("start_date")
     end_date = request.GET.get("end_date")
@@ -257,7 +257,7 @@ def calculate_sales_stats(sales_queryset):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-# @throttle_classes([SustainedRateThrottle])
+@throttle_classes([SustainedRateThrottle])
 def store_today_sales(request):
     """Get TOTAL store sales for today - for dashboard card"""
     try:
@@ -282,7 +282,7 @@ def store_today_sales(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-# @throttle_classes([SustainedRateThrottle])
+@throttle_classes([SustainedRateThrottle])
 def user_today_performance(request):
     """Get INDIVIDUAL user sales for today - for layout sidebar"""
     try:
@@ -920,7 +920,11 @@ def delete_staff(request, pk):
 @api_view(['GET'])
 @permission_classes([])
 def get_store_settings(request):
-    return Response(StoreSettingsSerializer(StoreSettings.load()).data)
+    response = Response(StoreSettingsSerializer(StoreSettings.load()).data)
+    # Prevent browsers and CDNs from caching this — plan_tier must always be fresh
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    response['Pragma'] = 'no-cache'
+    return response
 
 
 @api_view(['PATCH'])
