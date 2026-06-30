@@ -1,5 +1,5 @@
 // src/components/Layout.jsx
-import { useContext, useState, useEffect } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import {
   AppBar, Box, Drawer, IconButton, Toolbar, Typography, List, ListItem, ListItemButton, ListItemIcon, ListItemText,
   Divider, Badge, Avatar, Menu, MenuItem, Chip, useTheme, useMediaQuery, Tooltip, Paper
@@ -147,15 +147,15 @@ const Layout = ({ children }) => {
   const isManagerOrAdmin = user?.role === 'manager' || user?.role === 'admin';
 
   const allMenuItems = [
-    { text: "Dashboard",    icon: <DashboardIcon />,       path: "/dashboard" },
-    { text: "POS Terminal", icon: <ShoppingCartIcon />,    path: "/salespage" },
-    { text: "Products",     icon: <InventoryIcon />,       path: "/products" },
-    { text: "Restock",      icon: <RestockIcon />,         path: "/restock",        restricted: true },
-    { text: "Sales Reports",icon: <TrendingUpIcon />,      path: "/reports/sales",  restricted: true },
-    { text: "Customers",    icon: <PeopleIcon />,          path: "/customers",      restricted: true, feature: 'customer_loyalty' },
-    { text: "Staff",        icon: <ManageAccountsIcon />,  path: "/staff",          restricted: true },
-    { text: "Audit Log",    icon: <AuditIcon />,           path: "/audit-log",      restricted: true, feature: 'audit_log' },
-    { text: "Settings",     icon: <SettingsIcon />,        path: "/settings" },
+    { text: "Dashboard",    icon: <DashboardIcon />,       path: "/dashboard",      section: "OVERVIEW" },
+    { text: "POS Terminal", icon: <ShoppingCartIcon />,    path: "/salespage",      section: "SALES" },
+    { text: "Products",     icon: <InventoryIcon />,       path: "/products",       section: null },
+    { text: "Restock",      icon: <RestockIcon />,         path: "/restock",        restricted: true, section: null },
+    { text: "Sales Reports",icon: <TrendingUpIcon />,      path: "/reports/sales",  restricted: true, section: "ANALYTICS" },
+    { text: "Customers",    icon: <PeopleIcon />,          path: "/customers",      restricted: true, feature: 'customer_loyalty', section: null },
+    { text: "Staff",        icon: <ManageAccountsIcon />,  path: "/staff",          restricted: true, section: "MANAGEMENT" },
+    { text: "Audit Log",    icon: <AuditIcon />,           path: "/audit-log",      restricted: true, feature: 'audit_log', section: null },
+    { text: "Settings",     icon: <SettingsIcon />,        path: "/settings",       section: "SYSTEM" },
   ];
   const menuItems = allMenuItems.filter(item => !item.restricted || isManagerOrAdmin);
 
@@ -219,60 +219,78 @@ const Layout = ({ children }) => {
       </Box>
 
       {/* Navigation Menu */}
-      <List sx={{ px: 1, flexGrow: 1, py: 1, overflow: 'auto' }}>
+      <List sx={{ px: 1.5, flexGrow: 1, py: 1.5, overflow: 'auto' }}>
         {menuItems.map((item) => {
           const locked = item.feature ? !hasFeature(item.feature) : false;
           const isSelected = location.pathname === item.path;
           return (
-            <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
-              <Tooltip
-                title={locked ? `Requires ${TIER_LABELS[item.feature === 'audit_log' ? 'GROWTH' : 'GROWTH']} plan — tap to learn more` : ''}
-                placement="right"
-                arrow
-              >
-                <ListItemButton
-                  onClick={() => {
-                    navigate(item.path);
-                    if (isMobile) setMobileOpen(false);
-                  }}
-                  selected={isSelected && !locked}
+            <React.Fragment key={item.text}>
+              {item.section && (
+                <Typography
+                  variant="caption"
                   sx={{
-                    borderRadius: 2,
-                    py: 1.2,
-                    opacity: locked ? 0.6 : 1,
-                    '&.Mui-selected': {
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                      color: 'white',
-                      boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
-                      '& .MuiListItemIcon-root': { color: 'white' },
-                      '&:hover': { background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)' },
-                    },
-                    '&:hover': {
-                      bgcolor: 'action.hover',
-                      transform: 'translateX(4px)',
-                      transition: 'all 0.2s ease',
-                    },
-                    transition: 'all 0.2s ease',
+                    display: 'block',
+                    px: 1,
+                    pt: 1.5,
+                    pb: 0.5,
+                    color: 'text.disabled',
+                    fontWeight: 700,
+                    fontSize: '0.62rem',
+                    letterSpacing: 1.2,
                   }}
                 >
-                  <ListItemIcon sx={{
-                    color: isSelected && !locked ? 'white' : locked ? 'text.disabled' : 'primary.main',
-                    minWidth: 40,
-                  }}>
-                    {item.icon}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={item.text}
-                    primaryTypographyProps={{
-                      fontWeight: isSelected && !locked ? 'bold' : 'medium',
-                      fontSize: '0.9rem',
-                      color: locked ? 'text.disabled' : 'inherit',
+                  {item.section}
+                </Typography>
+              )}
+              <ListItem disablePadding sx={{ mb: 0.25 }}>
+                <Tooltip
+                  title={locked ? `Requires Growth plan` : ''}
+                  placement="right"
+                  arrow
+                >
+                  <ListItemButton
+                    onClick={() => {
+                      navigate(item.path);
+                      if (isMobile) setMobileOpen(false);
                     }}
-                  />
-                  {locked && <LockIcon sx={{ fontSize: 14, color: 'text.disabled', ml: 0.5 }} />}
-                </ListItemButton>
-              </Tooltip>
-            </ListItem>
+                    selected={isSelected && !locked}
+                    sx={{
+                      borderRadius: 2,
+                      py: 1,
+                      opacity: locked ? 0.55 : 1,
+                      '&.Mui-selected': {
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        color: 'white',
+                        boxShadow: '0 4px 14px rgba(102,126,234,0.35)',
+                        '& .MuiListItemIcon-root': { color: 'white' },
+                        '&:hover': { background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)' },
+                      },
+                      '&:hover:not(.Mui-selected)': {
+                        bgcolor: 'action.hover',
+                        transform: 'translateX(3px)',
+                      },
+                      transition: 'all 0.18s ease',
+                    }}
+                  >
+                    <ListItemIcon sx={{
+                      color: isSelected && !locked ? 'white' : locked ? 'text.disabled' : 'primary.main',
+                      minWidth: 38,
+                    }}>
+                      {item.icon}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={item.text}
+                      primaryTypographyProps={{
+                        fontWeight: isSelected && !locked ? 700 : 500,
+                        fontSize: '0.875rem',
+                        color: locked ? 'text.disabled' : 'inherit',
+                      }}
+                    />
+                    {locked && <LockIcon sx={{ fontSize: 13, color: 'text.disabled', ml: 0.5 }} />}
+                  </ListItemButton>
+                </Tooltip>
+              </ListItem>
+            </React.Fragment>
           );
         })}
       </List>
