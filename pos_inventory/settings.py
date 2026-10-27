@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from datetime import timedelta
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -20,10 +21,14 @@ except ImportError:
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-dev-key-change-in-production')
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured('SECRET_KEY environment variable must be set in production.')
+    SECRET_KEY = 'django-insecure-dev-key-change-in-production'
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,.vercel.app,.railway.app,.onrender.com').split(',')
 
@@ -130,9 +135,14 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# ✅ For production:whitenoise compression
-if not DEBUG:
-    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# Static file storage (STATICFILES_STORAGE was removed in Django 5.1; use STORAGES)
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage' if DEBUG
+        else 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -237,4 +247,5 @@ if not DEBUG:
     CSRF_TRUSTED_ORIGINS = [
         'https://*.railway.app',
         'https://*.vercel.app',
+        'https://*.onrender.com',
     ]
