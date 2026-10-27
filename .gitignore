@@ -51,3 +51,8 @@ Thumbs.db
 
 # Misc
 setup.md
+
+# Dependencies / caches
+node_modules/
+.python-version.bak
+_archive/misc/nul.txt
