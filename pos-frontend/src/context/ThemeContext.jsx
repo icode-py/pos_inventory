@@ -55,6 +55,26 @@ export function AppThemeProvider({ children }) {
             fontWeight: 600,
             borderRadius: 8,
           },
+          // comfortable tap targets on phones and tablets
+          sizeMedium: ({ theme }) => ({ [theme.breakpoints.down('md')]: { minHeight: 44 } }),
+          sizeLarge: ({ theme }) => ({ [theme.breakpoints.down('md')]: { minHeight: 48 } }),
+        },
+      },
+      MuiIconButton: {
+        styleOverrides: {
+          sizeMedium: ({ theme }) => ({ [theme.breakpoints.down('md')]: { padding: 10 } }),
+        },
+      },
+      MuiDialog: {
+        styleOverrides: {
+          paper: ({ theme }) => ({
+            [theme.breakpoints.down('sm')]: {
+              margin: 12,
+              width: 'calc(100% - 24px)',
+              maxWidth: 'calc(100% - 24px)',
+              maxHeight: 'calc(100% - 24px)',
+            },
+          }),
         },
       },
       MuiChip: {
@@ -102,6 +122,9 @@ export function AppThemeProvider({ children }) {
       },
       MuiTableCell: {
         styleOverrides: {
+          root: ({ theme }) => ({
+            [theme.breakpoints.down('sm')]: { padding: '10px 8px' },
+          }),
           head: { fontWeight: 600 },
         },
       },
