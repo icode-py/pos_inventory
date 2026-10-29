@@ -25,12 +25,14 @@ import {
   CloudQueue as SyncingIcon,
   CloudDone as OnlineIcon,
   CloudUpload as CloudUploadIcon,
-  LocalOffer as DiscountIcon
+  LocalOffer as DiscountIcon,
+  CameraAlt as CameraIcon
 } from "@mui/icons-material";
 import { useReactToPrint } from "react-to-print";
 import Receipt from "../components/Receipt";
 import CustomerLookupModal from '../components/CustomerLookupModal';
 import CustomerQuickAddModal from '../components/CustomerQuickAddModal';
+import BarcodeScannerDialog from '../components/BarcodeScannerDialog';
 import { useOffline } from '../context/OfflineManager';
 import { useStore } from '../context/StoreContext';
 
@@ -53,6 +55,8 @@ const formatCurrency = (amount) => {
 const SalesPage = () => {
   const [products, setProducts] = useState([]);
   const [barcodeInput, setBarcodeInput] = useState("");
+  const [cameraScannerOpen, setCameraScannerOpen] = useState(false);
+  const [cameraScanMessage, setCameraScanMessage] = useState("");
   const [cart, setCart] = useState([]);
   const [paidAmount, setPaidAmount] = useState("");
   const [snackbar, setSnackbar] = useState({
@@ -335,7 +339,6 @@ const SalesPage = () => {
       setCart(prev => [...prev, { product: productWithNumericPrice, quantity: 1 }]);
     }
 
-    setSelectedProductId("");
     setBarcodeInput("");
     showSnackbar(`Added ${product.name} to cart`, "success");
 
@@ -355,6 +358,19 @@ const SalesPage = () => {
         : showSnackbar("Product not found", "error");
       setBarcodeInput("");
     }
+  };
+
+  // Called by the camera scanner for every barcode it reads
+  const handleCameraScan = (code) => {
+    const product = products.find(p =>
+      p.barcode?.toString().toLowerCase() === code.trim().toLowerCase()
+    );
+    if (!product) {
+      setCameraScanMessage(`No product with barcode ${code}`);
+      return;
+    }
+    handleAddProduct(product);
+    setCameraScanMessage(`Added: ${product.name}`);
   };
 
   const handleBarcodeScan = (e) => {
@@ -828,6 +844,12 @@ const SalesPage = () => {
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 } }}>
+      <BarcodeScannerDialog
+        open={cameraScannerOpen}
+        onClose={() => setCameraScannerOpen(false)}
+        onDetected={handleCameraScan}
+        lastResult={cameraScanMessage}
+      />
       <Grid container spacing={{ xs: 1.5, md: 3 }}>
         {/* Header with Connection Status */}
         <Grid item size={{ xs: 12 }}>
@@ -978,6 +1000,16 @@ const SalesPage = () => {
                     endAdornment: scannerActive && <QrCodeScannerIcon color="action" />
                   }}
                 />
+
+                <Button
+                  variant="outlined"
+                  startIcon={<CameraIcon />}
+                  onClick={() => { setCameraScanMessage(""); setCameraScannerOpen(true); }}
+                  fullWidth
+                  sx={{ mb: 2, py: { xs: 1.25, md: 0.75 } }}
+                >
+                  Scan with camera
+                </Button>
 
                 <Autocomplete
                   options={products}
