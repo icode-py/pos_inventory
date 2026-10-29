@@ -36,6 +36,7 @@ import { useOffline } from "../context/OfflineManager";
 import { useColorMode } from "../context/ThemeContext";
 import { useStore, TIER_LABELS } from "../context/StoreContext";
 import axiosInstance from "../utils/axiosInstance";
+import InstallAppBanner from './InstallAppBanner';
 
 const drawerWidth = 280;
 
@@ -602,6 +603,7 @@ const Layout = ({ children }) => {
           border: '1px solid',
           borderColor: 'divider'
         }}>
+          <InstallAppBanner />
           {children}
         </Box>
       </Box>

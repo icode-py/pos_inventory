@@ -33,6 +33,7 @@ import Receipt from "../components/Receipt";
 import CustomerLookupModal from '../components/CustomerLookupModal';
 import CustomerQuickAddModal from '../components/CustomerQuickAddModal';
 import BarcodeScannerDialog from '../components/BarcodeScannerDialog';
+import ReceiptDialog from '../components/ReceiptDialog';
 import { useOffline } from '../context/OfflineManager';
 import { useStore } from '../context/StoreContext';
 
@@ -56,6 +57,7 @@ const SalesPage = () => {
   const [products, setProducts] = useState([]);
   const [barcodeInput, setBarcodeInput] = useState("");
   const [cameraScannerOpen, setCameraScannerOpen] = useState(false);
+  const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
   const [cameraScanMessage, setCameraScanMessage] = useState("");
   const [cart, setCart] = useState([]);
   const [paidAmount, setPaidAmount] = useState("");
@@ -503,6 +505,16 @@ const SalesPage = () => {
     }
   });
 
+  // Phones/tablets block automatic printing, so show a receipt screen (share / WhatsApp / print)
+  // instead. Desktops with a connected printer keep the automatic print.
+  const presentReceipt = () => {
+    if (window.matchMedia?.('(pointer: coarse)').matches) {
+      setReceiptDialogOpen(true);
+    } else if (receiptRef.current) {
+      handlePrint();
+    }
+  };
+
   const handleCompleteSale = async () => {
     const total = calculateTotal();
     const saleData = {
@@ -554,9 +566,7 @@ const SalesPage = () => {
 
       // Auto-print receipt for offline sales
       setTimeout(() => {
-        if (receiptRef.current) {
-          handlePrint();
-        }
+        presentReceipt();
 
         // Reset form
         setCart([]);
@@ -606,9 +616,7 @@ const SalesPage = () => {
 
       // Auto-print receipt
       setTimeout(() => {
-        if (receiptRef.current) {
-          handlePrint();
-        }
+        presentReceipt();
 
         // Reset form
         setCart([]);
@@ -641,9 +649,7 @@ const SalesPage = () => {
         setLastSale(saleWithDetails);
 
         setTimeout(() => {
-          if (receiptRef.current) {
-            handlePrint();
-          }
+          presentReceipt();
           setCart([]);
           setPaidAmount("");
           setSelectedCustomer(null);
@@ -1344,6 +1350,13 @@ const SalesPage = () => {
       <div style={{ display: "none" }}>
         <Receipt ref={receiptRef} sale={lastSale} store={store} />
       </div>
+
+      <ReceiptDialog
+        open={receiptDialogOpen}
+        onClose={() => setReceiptDialogOpen(false)}
+        sale={lastSale}
+        store={store}
+      />
 
       {/* Keyboard Shortcuts Dialog */}
       <ShortcutsDialog />
