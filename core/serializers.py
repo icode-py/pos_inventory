@@ -1,6 +1,6 @@
 # serializers.py
 from rest_framework import serializers
-from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, AuditLog, StoreSettings
+from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, AuditLog, Store
 from rest_framework.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F
@@ -9,7 +9,32 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 import re
 import logging
 
+from .authentication import check_store_access
+
 logger = logging.getLogger(__name__)
+
+
+class StoreScopedPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
+    """A foreign key that only accepts records from the requesting user's store."""
+
+    def get_queryset(self):
+        request = self.context.get('request')
+        store = getattr(getattr(request, 'user', None), 'store', None)
+        queryset = super().get_queryset()
+        return queryset.filter(store=store) if store else queryset.none()
+
+
+class UniqueInStoreMixin:
+    """Barcodes, phones and category names only have to be unique within a store."""
+
+    def check_unique_in_store(self, field, value):
+        model = self.Meta.model
+        matches = model.objects.filter(store=self.context['request'].user.store, **{field: value})
+        if self.instance is not None:
+            matches = matches.exclude(pk=self.instance.pk)
+        if matches.exists():
+            raise serializers.ValidationError(f'{model._meta.verbose_name} with this {field} already exists.')
+        return value
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -19,6 +44,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         # Add custom claims
         token['username'] = user.username
+        token['store_id'] = user.store_id
         token['role'] = (
             "admin" if user.is_admin else
             "manager" if user.is_manager else
@@ -31,27 +57,30 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         user = self.user
+        check_store_access(user)
         ip = self.context['request'].META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() \
              or self.context['request'].META.get('REMOTE_ADDR', 'unknown')
         logger.info('Login: user=%s ip=%s', user.username, ip)
         return data
 
 
-class CategorySerializer(serializers.ModelSerializer):
+class CategorySerializer(UniqueInStoreMixin, serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = '__all__'
+        exclude = ['store']
 
     def validate_name(self, value):
         if len(value.strip()) < 2:
             raise serializers.ValidationError("Category name must be at least 2 characters long")
-        return value.strip()
+        return self.check_unique_in_store('name', value.strip())
 
 
 class BulkDiscountSerializer(serializers.ModelSerializer):
+    product = StoreScopedPrimaryKeyRelatedField(queryset=Product.objects.all())
+
     class Meta:
         model = BulkDiscount
-        fields = '__all__'
+        exclude = ['store']
 
     def validate_name(self, value):
         if len(value.strip()) < 2:
@@ -92,9 +121,9 @@ class BulkDiscountSerializer(serializers.ModelSerializer):
         return data
 
 
-class ProductSerializer(serializers.ModelSerializer):
+class ProductSerializer(UniqueInStoreMixin, serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
-    category_id = serializers.PrimaryKeyRelatedField(
+    category_id = StoreScopedPrimaryKeyRelatedField(
         queryset=Category.objects.all(), source='category', write_only=True
     )
     unit_price = serializers.ReadOnlyField()
@@ -134,7 +163,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def validate_barcode(self, value):
         if value and len(value) > 100:
             raise serializers.ValidationError("Barcode too long")
-        return value
+        return self.check_unique_in_store('barcode', value)
 
     def get_bulk_discounts(self, obj):
         active_discounts = obj.bulk_discounts.filter(is_active=True)
@@ -176,7 +205,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
 class SaleItemSerializer(serializers.ModelSerializer):
     product = ProductSerializer(read_only=True)
-    product_id = serializers.PrimaryKeyRelatedField(
+    product_id = StoreScopedPrimaryKeyRelatedField(
         queryset=Product.objects.all(), source='product', write_only=True
     )
 
@@ -203,7 +232,7 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True)
     cashier = serializers.StringRelatedField(read_only=True)
     customer_name = serializers.CharField(source='customer.name', read_only=True, allow_null=True)
-    customer_id = serializers.PrimaryKeyRelatedField(
+    customer_id = StoreScopedPrimaryKeyRelatedField(
         queryset=Customer.objects.all(), source='customer', write_only=True, required=False, allow_null=True
     )
 
@@ -287,7 +316,7 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
         # Award loyalty points and update customer stats (atomic to avoid race conditions)
         if customer:
             total = float(transaction_instance.total_amount)
-            loyalty_settings = LoyaltySettings.objects.filter(is_active=True).first()
+            loyalty_settings = LoyaltySettings.objects.filter(store=transaction_instance.store, is_active=True).first()
             if loyalty_settings and float(loyalty_settings.points_per_amount) >= 1:
                 points_earned = int(total / float(loyalty_settings.points_per_amount))
             else:
@@ -368,7 +397,7 @@ class RestockSerializer(serializers.ModelSerializer):
         return value
 
 
-class CustomerSerializer(serializers.ModelSerializer):
+class CustomerSerializer(UniqueInStoreMixin, serializers.ModelSerializer):
     class Meta:
         model = Customer
         fields = ['id', 'phone', 'name', 'email', 'loyalty_points', 'total_spent', 'total_visits', 'created_at', 'notes']
@@ -378,7 +407,7 @@ class CustomerSerializer(serializers.ModelSerializer):
         digits_only = re.sub(r'[\s\-\(\)\+]', '', value)
         if not re.match(r'^\d{7,15}$', digits_only):
             raise serializers.ValidationError("Enter a valid phone number (7–15 digits)")
-        return value
+        return self.check_unique_in_store('phone', value)
 
     def validate_email(self, value):
         if value and not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', value):
@@ -402,7 +431,7 @@ class CustomerTransactionSerializer(serializers.ModelSerializer):
 class LoyaltySettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = LoyaltySettings
-        fields = '__all__'
+        exclude = ['store']
 
     def validate_points_per_amount(self, value):
         if value <= 0:
@@ -425,6 +454,6 @@ class AuditLogSerializer(serializers.ModelSerializer):
 
 class StoreSettingsSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StoreSettings
+        model = Store
         fields = ['name', 'tagline', 'phone', 'address', 'email', 'receipt_footer', 'plan_tier']
         read_only_fields = ['plan_tier']

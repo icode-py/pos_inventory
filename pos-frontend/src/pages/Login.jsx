@@ -37,7 +37,7 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [store, setStore] = useState({ name: 'HOLO POS', tagline: 'Modern Point of Sale' });
+  const [store, setStore] = useState({ name: 'POS', tagline: 'Point of Sale' });
 
   useEffect(() => {
     axios.get(`${API_URL}/store-settings/`)

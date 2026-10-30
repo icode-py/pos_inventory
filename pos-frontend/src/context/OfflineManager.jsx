@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import axiosInstance from '../utils/axiosInstance';
+import { storeKey, adoptLegacySales } from '../utils/storeKey';
+
+const PENDING_SALES = 'holo_pending_sales';
 
 const OfflineContext = createContext();
 
@@ -11,23 +14,26 @@ export const OfflineProvider = ({ children }) => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
 
-    // Load pending sales from localStorage
-    const savedSales = localStorage.getItem('holo_pending_sales');
-    if (savedSales) {
+    // Load this store's pending sales from localStorage
+    const loadPendingSales = () => {
       try {
-        setPendingSales(JSON.parse(savedSales));
+        adoptLegacySales(PENDING_SALES);
+        setPendingSales(JSON.parse(localStorage.getItem(storeKey(PENDING_SALES)) || '[]'));
       } catch (error) {
         console.error('Failed to parse pending sales:', error);
-        localStorage.removeItem('holo_pending_sales');
+        localStorage.removeItem(storeKey(PENDING_SALES));
       }
-    }
+    };
+    loadPendingSales();
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    window.addEventListener('auth-changed', loadPendingSales);
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('auth-changed', loadPendingSales);
     };
   }, []);
 
@@ -41,13 +47,13 @@ export const OfflineProvider = ({ children }) => {
     
     const updated = [...pendingSales, offlineSale];
     setPendingSales(updated);
-    localStorage.setItem('holo_pending_sales', JSON.stringify(updated));
+    localStorage.setItem(storeKey(PENDING_SALES), JSON.stringify(updated));
     
     return offlineSale.id;
   };
 
   const syncPendingSales = async () => {
-    const pending = JSON.parse(localStorage.getItem('holo_pending_sales') || '[]');
+    const pending = JSON.parse(localStorage.getItem(storeKey(PENDING_SALES)) || '[]');
     if (pending.length === 0) return 0;
 
     const successful = [];
@@ -63,7 +69,7 @@ export const OfflineProvider = ({ children }) => {
 
     // Remove synced sales
     const remaining = pending.filter(sale => !successful.includes(sale.id));
-    localStorage.setItem('holo_pending_sales', JSON.stringify(remaining));
+    localStorage.setItem(storeKey(PENDING_SALES), JSON.stringify(remaining));
     setPendingSales(remaining);
 
     return successful.length;
