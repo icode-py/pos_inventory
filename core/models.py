@@ -1,21 +1,52 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.utils import timezone
+
+
+class Store(models.Model):
+    """A tenant. Every store's data is kept apart by a `store` link on its records."""
+    TIER_CHOICES = [
+        ('STARTER',  'Starter'),
+        ('GROWTH',   'Growth'),
+        ('BUSINESS', 'Business'),
+    ]
+
+    name            = models.CharField(max_length=100, default='My Store')
+    tagline         = models.CharField(max_length=200, blank=True, default='Modern Point of Sale')
+    phone           = models.CharField(max_length=20,  blank=True)
+    address         = models.CharField(max_length=200, blank=True)
+    email           = models.EmailField(blank=True)
+    receipt_footer  = models.CharField(max_length=200, blank=True, default='Thank you for your business!')
+    plan_tier       = models.CharField(max_length=10, choices=TIER_CHOICES, default='STARTER')
+    is_active       = models.BooleanField(default=True, help_text='Untick to suspend this store. Its staff can no longer log in.')
+    created_at      = models.DateTimeField(default=timezone.now, editable=False)
+
+    def __str__(self):
+        return self.name
+
 
 class Category(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['store', 'name'], name='unique_category_name_per_store'),
+        ]
 
     def __str__(self):
         return self.name
 
 
 class Product(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True)
     price = models.DecimalField(max_digits=15, decimal_places=2)
     cost_price = models.DecimalField(max_digits=15, decimal_places=2)
     stock = models.PositiveIntegerField()
-    barcode = models.CharField(max_length=100, unique=True)
+    barcode = models.CharField(max_length=100)
     created_at = models.DateTimeField(auto_now_add=True)
 
     # NEW: Bulk pricing fields
@@ -23,6 +54,11 @@ class Product(models.Model):
     bulk_quantity = models.PositiveIntegerField(default=1, help_text="Number of units in a bulk pack")
     bulk_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True, help_text="Price for the entire bulk pack")
     unit_of_measure = models.CharField(max_length=20, default='units', help_text="e.g., pieces, kg, liters, packs")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['store', 'barcode'], name='unique_barcode_per_store'),
+        ]
     
     def __str__(self):
         return self.name
@@ -43,6 +79,7 @@ class Product(models.Model):
 
 
 class SaleTransaction(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
     cashier = models.ForeignKey('Staff', on_delete=models.SET_NULL, null=True)
     customer = models.ForeignKey('Customer', on_delete=models.SET_NULL, null=True, blank=True)
     total_amount = models.DecimalField(max_digits=15, decimal_places=2)
@@ -64,6 +101,8 @@ class SaleItem(models.Model):
         return f"{self.product.name} x {self.quantity}"
 
 class Staff(AbstractUser):
+    # Empty only for platform superusers, who manage stores through Django admin
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, null=True, blank=True, related_name='staff')
     is_cashier = models.BooleanField(default=False)
     is_manager = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False)
@@ -83,6 +122,7 @@ class Staff(AbstractUser):
 
 
 class Restock(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity_added = models.PositiveIntegerField()
     restocked_by = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True)
@@ -93,7 +133,8 @@ class Restock(models.Model):
     
 
 class Customer(models.Model):
-    phone = models.CharField(max_length=15, unique=True)
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    phone = models.CharField(max_length=15)
     name = models.CharField(max_length=100)
     email = models.EmailField(blank=True)
     loyalty_points = models.IntegerField(default=0)
@@ -101,6 +142,11 @@ class Customer(models.Model):
     total_visits = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     notes = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['store', 'phone'], name='unique_customer_phone_per_store'),
+        ]
     
     def __str__(self):
         return f"{self.name} ({self.phone})"
@@ -116,6 +162,7 @@ class CustomerTransaction(models.Model):
         return f"{self.customer.name} - {self.sale.id}"
 
 class LoyaltySettings(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
     points_per_amount = models.DecimalField(max_digits=8, decimal_places=2, default=1.0, 
                                           help_text="Points earned per currency amount spent")
     redemption_rate = models.DecimalField(max_digits=8, decimal_places=2, default=100.0,
@@ -127,6 +174,7 @@ class LoyaltySettings(models.Model):
     
 
 class BulkDiscount(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
     DISCOUNT_TYPES = [
         ('percentage', 'Percentage'),
         ('fixed', 'Fixed Amount'),
@@ -162,6 +210,7 @@ class BulkDiscount(models.Model):
 
 
 class AuditLog(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
     ACTION_CHOICES = [
         ('CREATE', 'Create'),
         ('UPDATE', 'Update'),
@@ -180,32 +229,3 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.action} {self.model_name} #{self.object_id} by {self.changed_by}"
-
-
-class StoreSettings(models.Model):
-    TIER_CHOICES = [
-        ('STARTER',  'Starter'),
-        ('GROWTH',   'Growth'),
-        ('BUSINESS', 'Business'),
-    ]
-
-    name            = models.CharField(max_length=100, default='My Store')
-    tagline         = models.CharField(max_length=200, blank=True, default='Modern Point of Sale')
-    phone           = models.CharField(max_length=20,  blank=True)
-    address         = models.CharField(max_length=200, blank=True)
-    email           = models.EmailField(blank=True)
-    receipt_footer  = models.CharField(max_length=200, blank=True, default='Thank you for your business!')
-    # Subscription plan — set this once per client deployment
-    plan_tier       = models.CharField(max_length=10, choices=TIER_CHOICES, default='BUSINESS')
-
-    class Meta:
-        verbose_name_plural = 'Store Settings'
-
-    def __str__(self):
-        return self.name
-
-    @classmethod
-    def load(cls):
-        """Always returns the single settings record, creating it if needed."""
-        obj, _ = cls.objects.get_or_create(pk=1)
-        return obj

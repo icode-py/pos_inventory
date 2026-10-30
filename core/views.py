@@ -14,9 +14,9 @@ from django.utils.dateparse import parse_date
 from django.utils import timezone
 from datetime import timedelta
 from django.http import HttpResponse
-from .permissions import IsManagerOrAdmin, IsCashier, IsCashierOrManager, make_tier_permission, tier_block_response
+from .permissions import IsManagerOrAdmin, IsCashier, IsCashierOrManager, make_tier_permission, tier_block_response, current_store
 from .tier_config import CASHIER_LIMITS
-from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, AuditLog, StoreSettings
+from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, AuditLog, Store
 from .serializers import (
     CategorySerializer,
     ProductSerializer,
@@ -55,48 +55,34 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     throttle_classes = [LoginRateThrottle]
 
 
-class ProductListView(APIView):
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [SustainedRateThrottle]
+class StoreScopedMixin:
+    """Limits a viewset to the logged-in user's store and stamps new records with it."""
 
-    def get(self, request):
-        products = Product.objects.all().prefetch_related('bulk_discounts')
-        serializer = ProductSerializer(products, many=True)
-        return Response(serializer.data)
+    def get_queryset(self):
+        return super().get_queryset().filter(store=current_store(self.request))
 
-
-class CategoryViewSet(viewsets.ModelViewSet):
-    queryset = Category.objects.all()
-    serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
-    throttle_classes = [SustainedRateThrottle]
+    def perform_create(self, serializer):
+        serializer.save(store=current_store(self.request))
 
 
-class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.all().prefetch_related('bulk_discounts')
-    serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [SustainedRateThrottle]
-
-
-class SaleTransactionViewSet(viewsets.ModelViewSet):
+class SaleTransactionViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     queryset = SaleTransaction.objects.all().order_by('-created_at')
     serializer_class = SaleTransactionSerializer
     permission_classes = [IsCashierOrManager]
     pagination_class = None
 
     def perform_create(self, serializer):
-        serializer.save(cashier=self.request.user)
+        serializer.save(store=current_store(self.request), cashier=self.request.user)
 
 
-class StaffViewSet(viewsets.ReadOnlyModelViewSet):
+class StaffViewSet(StoreScopedMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Staff.objects.all()
     serializer_class = StaffSerializer
     permission_classes = [IsManagerOrAdmin]
     pagination_class = None
 
 
-class RestockHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+class RestockHistoryViewSet(StoreScopedMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Restock.objects.select_related('product', 'restocked_by').order_by('-restocked_at')
     serializer_class = RestockSerializer
     permission_classes = [IsAuthenticated, IsCashierOrManager]
@@ -109,12 +95,12 @@ class RestockHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 def register_staff(request):
     """Create a new staff account. Requires manager or admin role."""
     # Enforce per-tier cashier limit
-    settings_obj = StoreSettings.load()
+    settings_obj = current_store(request)
     limit = CASHIER_LIMITS.get(settings_obj.plan_tier)
     if limit is not None:
         is_cashier_role = request.data.get('is_cashier', False)
         if is_cashier_role:
-            current_cashiers = Staff.objects.filter(is_cashier=True, is_active=True).count()
+            current_cashiers = Staff.objects.filter(store=settings_obj, is_cashier=True, is_active=True).count()
             if current_cashiers >= limit:
                 return Response({
                     'error': (
@@ -130,6 +116,7 @@ def register_staff(request):
         serializer = StaffSerializer(data=request.data)
         if serializer.is_valid():
             user = Staff.objects.create_user(
+                store=settings_obj,
                 username=serializer.validated_data['username'],
                 password=request.data.get('password'),
                 is_cashier=request.data.get('is_cashier', False),
@@ -140,6 +127,7 @@ def register_staff(request):
             )
             logger.info('Staff account created: %s by %s', user.username, request.user.username)
             AuditLog.objects.create(
+                store=current_store(request),
                 action='CREATE', model_name='Staff',
                 object_id=str(user.pk), object_repr=user.username,
                 changed_by=request.user,
@@ -163,17 +151,19 @@ def restock_product(request):
         return Response({"error": "Missing product_id or quantity"}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        product = Product.objects.get(id=product_id)
+        product = Product.objects.get(id=product_id, store=current_store(request))
         product.stock += int(quantity)
         product.save()
 
         restock = Restock.objects.create(
+            store=product.store,
             product=product,
             quantity_added=int(quantity),
             restocked_by=request.user
         )
 
         AuditLog.objects.create(
+            store=current_store(request),
             action='CREATE',
             model_name='Restock',
             object_id=str(restock.pk),
@@ -210,7 +200,7 @@ def sales_report(request):
         except ValueError:
             return Response({"error": "Invalid end_date format"}, status=status.HTTP_400_BAD_REQUEST)
 
-    sales = SaleTransaction.objects.all()
+    sales = SaleTransaction.objects.filter(store=current_store(request))
 
     # If no cashier_id specified and user is cashier, show only their sales
     if not cashier_id and (request.user.is_cashier and not request.user.is_manager and not request.user.is_admin):
@@ -260,11 +250,12 @@ def calculate_sales_stats(sales_queryset):
 @throttle_classes([SustainedRateThrottle])
 def store_today_sales(request):
     """Get TOTAL store sales for today - for dashboard card"""
+    store = current_store(request)
     try:
         today = timezone.now().date()
         
         # Always get ALL sales for the store today
-        sales_today = SaleTransaction.objects.filter(created_at__date=today)
+        sales_today = SaleTransaction.objects.filter(store=store, created_at__date=today)
         
         stats = calculate_sales_stats(sales_today)
         stats['scope'] = 'store_total'
@@ -285,11 +276,13 @@ def store_today_sales(request):
 @throttle_classes([SustainedRateThrottle])
 def user_today_performance(request):
     """Get INDIVIDUAL user sales for today - for layout sidebar"""
+    store = current_store(request)
     try:
         today = timezone.now().date()
         
         # Get sales for today filtered by current user (everyone sees their own sales)
         sales_today = SaleTransaction.objects.filter(
+            store=store,
             created_at__date=today,
             cashier=request.user
         )
@@ -310,11 +303,12 @@ def user_today_performance(request):
 
 # ─── Audit Mixin ────────────────────────────────────────────────────────────
 
-class AuditMixin:
-    """Mix into any ModelViewSet to auto-log create/update/delete actions."""
+class AuditMixin(StoreScopedMixin):
+    """Mix into any ModelViewSet to scope it to the store and auto-log create/update/delete actions."""
 
     def _log(self, action, instance, changes=None):
         AuditLog.objects.create(
+            store=current_store(self.request),
             action=action,
             model_name=instance.__class__.__name__,
             object_id=str(instance.pk),
@@ -324,7 +318,7 @@ class AuditMixin:
         )
 
     def perform_create(self, serializer):
-        instance = serializer.save()
+        instance = serializer.save(store=current_store(self.request))
         self._log('CREATE', instance)
 
     def perform_update(self, serializer):
@@ -356,7 +350,7 @@ class CustomerViewSet(AuditMixin, viewsets.ModelViewSet):
     # throttle_classes = [SustainedRateThrottle]
     
     def get_queryset(self):
-        queryset = Customer.objects.all()
+        queryset = super().get_queryset()
         phone = self.request.query_params.get('phone', None)
         name = self.request.query_params.get('name', None)
         
@@ -376,11 +370,11 @@ class CustomerTransactionViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         customer_id = self.request.query_params.get('customer_id')
         if customer_id:
-            return CustomerTransaction.objects.filter(customer_id=customer_id).select_related('sale', 'customer').order_by('-created_at')
+            return CustomerTransaction.objects.filter(customer_id=customer_id, customer__store=current_store(self.request)).select_related('sale', 'customer').order_by('-created_at')
         return CustomerTransaction.objects.none()
 
 
-class LoyaltySettingsViewSet(viewsets.ModelViewSet):
+class LoyaltySettingsViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     queryset = LoyaltySettings.objects.all()
     serializer_class = LoyaltySettingsSerializer
     permission_classes = [IsAuthenticated, IsManagerOrAdmin, make_tier_permission('customer_loyalty')]
@@ -390,7 +384,7 @@ class LoyaltySettingsViewSet(viewsets.ModelViewSet):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def redeem_loyalty_points(request):
-    block = tier_block_response('customer_loyalty')
+    block = tier_block_response('customer_loyalty', request)
     if block:
         return Response(block, status=status.HTTP_403_FORBIDDEN)
     customer_id = request.data.get('customer_id')
@@ -400,8 +394,8 @@ def redeem_loyalty_points(request):
         return Response({"error": "Missing customer_id or points_to_redeem"}, status=status.HTTP_400_BAD_REQUEST)
     
     try:
-        customer = Customer.objects.get(id=customer_id)
-        loyalty_settings = LoyaltySettings.objects.filter(is_active=True).first()
+        customer = Customer.objects.get(id=customer_id, store=current_store(request))
+        loyalty_settings = LoyaltySettings.objects.filter(store=customer.store, is_active=True).first()
         
         if not loyalty_settings:
             return Response({"error": "Loyalty program is not active"}, status=status.HTTP_400_BAD_REQUEST)
@@ -424,7 +418,7 @@ def redeem_loyalty_points(request):
         return Response({"error": "Customer not found"}, status=status.HTTP_404_NOT_FOUND)
     
 
-class BulkDiscountViewSet(viewsets.ModelViewSet):
+class BulkDiscountViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     queryset = BulkDiscount.objects.all()
     serializer_class = BulkDiscountSerializer
     permission_classes = [IsAuthenticated, IsManagerOrAdmin, make_tier_permission('bulk_discounts')]
@@ -467,7 +461,7 @@ class AuditedProductViewSet(AuditMixin, viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+class AuditLogViewSet(StoreScopedMixin, viewsets.ReadOnlyModelViewSet):
     queryset = AuditLog.objects.select_related('changed_by').all()
     serializer_class = AuditLogSerializer
     permission_classes = [IsAuthenticated, IsManagerOrAdmin, make_tier_permission('audit_log')]
@@ -494,7 +488,7 @@ CRITICAL_STOCK_THRESHOLD = 5
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def low_stock_alerts(request):
-    low = Product.objects.filter(stock__lte=LOW_STOCK_THRESHOLD).order_by('stock')
+    low = Product.objects.filter(store=current_store(request), stock__lte=LOW_STOCK_THRESHOLD).order_by('stock')
     data = []
     for p in low:
         data.append({
@@ -519,7 +513,7 @@ TEMPLATE_HEADERS = [
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 def download_product_template(request):
-    block = tier_block_response('bulk_upload')
+    block = tier_block_response('bulk_upload', request)
     if block:
         return Response(block, status=status.HTTP_403_FORBIDDEN)
     wb = openpyxl.Workbook()
@@ -608,7 +602,7 @@ MAX_UPLOAD_ROWS = 1000
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 def bulk_upload_products(request):
-    block = tier_block_response('bulk_upload')
+    block = tier_block_response('bulk_upload', request)
     if block:
         return Response(block, status=status.HTTP_403_FORBIDDEN)
     file = request.FILES.get('file')
@@ -712,13 +706,15 @@ def bulk_upload_products(request):
 
     # Fix 1: all rows valid — write everything in one atomic transaction
     from django.db import transaction as db_transaction
+    store = current_store(request)
     with db_transaction.atomic():
         for item in validated:
             category = None
             if item['category_name']:
-                category, _ = Category.objects.get_or_create(name=item['category_name'])
+                category, _ = Category.objects.get_or_create(store=store, name=item['category_name'])
 
             product, was_created = Product.objects.update_or_create(
+                store=store,
                 barcode=item['barcode'],
                 defaults={
                     'name': item['name'],
@@ -733,6 +729,7 @@ def bulk_upload_products(request):
                 }
             )
             AuditLog.objects.create(
+                store=current_store(request),
                 action='CREATE' if was_created else 'UPDATE',
                 model_name='Product',
                 object_id=str(product.pk),
@@ -758,14 +755,14 @@ def bulk_upload_products(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 def margin_report(request):
-    block = tier_block_response('margin_analytics')
+    block = tier_block_response('margin_analytics', request)
     if block:
         return Response(block, status=status.HTTP_403_FORBIDDEN)
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
     cashier_id = request.GET.get('cashier_id')
 
-    sales = SaleTransaction.objects.all()
+    sales = SaleTransaction.objects.filter(store=current_store(request))
     if start_date:
         sales = sales.filter(created_at__date__gte=parse_date(start_date))
     if end_date:
@@ -840,7 +837,7 @@ def margin_report(request):
 @throttle_classes([BurstRateThrottle])
 def update_staff(request, pk):
     try:
-        staff = Staff.objects.get(pk=pk)
+        staff = Staff.objects.get(pk=pk, store=current_store(request))
     except Staff.DoesNotExist:
         return Response({'error': 'Staff not found'}, status=404)
     if staff.is_admin and not request.user.is_admin:
@@ -856,6 +853,7 @@ def update_staff(request, pk):
     staff.save()
     logger.info('Staff %s updated by %s', staff.username, request.user.username)
     AuditLog.objects.create(
+        store=current_store(request),
         action='UPDATE', model_name='Staff',
         object_id=str(staff.pk), object_repr=staff.username,
         changed_by=request.user,
@@ -869,7 +867,7 @@ def update_staff(request, pk):
 @throttle_classes([BurstRateThrottle])
 def reset_staff_password(request, pk):
     try:
-        staff = Staff.objects.get(pk=pk)
+        staff = Staff.objects.get(pk=pk, store=current_store(request))
     except Staff.DoesNotExist:
         return Response({'error': 'Staff not found'}, status=404)
     if staff.is_admin and not request.user.is_admin:
@@ -883,6 +881,7 @@ def reset_staff_password(request, pk):
     staff.save()
     logger.info('Password reset for %s by %s', staff.username, request.user.username)
     AuditLog.objects.create(
+        store=current_store(request),
         action='UPDATE', model_name='Staff',
         object_id=str(staff.pk), object_repr=staff.username,
         changed_by=request.user,
@@ -896,7 +895,7 @@ def reset_staff_password(request, pk):
 @throttle_classes([BurstRateThrottle])
 def delete_staff(request, pk):
     try:
-        staff = Staff.objects.get(pk=pk)
+        staff = Staff.objects.get(pk=pk, store=current_store(request))
     except Staff.DoesNotExist:
         return Response({'error': 'Staff not found'}, status=404)
     if staff.is_admin and not request.user.is_admin:
@@ -905,6 +904,7 @@ def delete_staff(request, pk):
         return Response({'error': 'Cannot delete your own account'}, status=403)
     username = staff.username
     AuditLog.objects.create(
+        store=current_store(request),
         action='DELETE', model_name='Staff',
         object_id=str(staff.pk), object_repr=username,
         changed_by=request.user,
@@ -917,10 +917,19 @@ def delete_staff(request, pk):
 
 # ─── Store Settings ───────────────────────────────────────────────────────────
 
+PUBLIC_BRANDING = {
+    'name': 'POS', 'tagline': 'Point of Sale', 'phone': '', 'address': '',
+    'email': '', 'receipt_footer': '', 'plan_tier': 'STARTER',
+}
+
+
 @api_view(['GET'])
 @permission_classes([])
 def get_store_settings(request):
-    response = Response(StoreSettingsSerializer(StoreSettings.load()).data)
+    # Public so the login page can load. Before login nobody has a store yet, so show neutral branding.
+    store = getattr(request.user, 'store', None)
+    data = StoreSettingsSerializer(store).data if store else PUBLIC_BRANDING
+    response = Response(data)
     # Prevent browsers and CDNs from caching this — plan_tier must always be fresh
     response['Cache-Control'] = 'no-store, no-cache, must-revalidate'
     response['Pragma'] = 'no-cache'
@@ -930,13 +939,14 @@ def get_store_settings(request):
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 def update_store_settings(request):
-    obj = StoreSettings.load()
+    obj = current_store(request)
     serializer = StoreSettingsSerializer(obj, data=request.data, partial=True)
     if serializer.is_valid():
         serializer.save()
         AuditLog.objects.create(
+            store=current_store(request),
             action='UPDATE', model_name='StoreSettings',
-            object_id='1', object_repr=obj.name,
+            object_id=str(obj.pk), object_repr=obj.name,
             changed_by=request.user,
             changes={k: request.data[k] for k in request.data},
         )

@@ -24,6 +24,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import axiosInstance from '../utils/axiosInstance';
+import { storeKey } from '../utils/storeKey';
 
 // ─── brand gradients ───────────────────────────────────────────────────────────
 const G = {
@@ -205,7 +206,7 @@ const Dashboard = () => {
       });
 
       const topProducts = Object.values(productSales).sort((a, b) => b.sales - a.sales).slice(0, 5);
-      const pendingSales = JSON.parse(localStorage.getItem('holo_pending_sales') || '[]');
+      const pendingSales = JSON.parse(localStorage.getItem(storeKey('holo_pending_sales')) || '[]');
 
       setStats({
         todaySales: storeData.total_sales || 0,

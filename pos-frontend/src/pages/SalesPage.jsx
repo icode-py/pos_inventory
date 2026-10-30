@@ -36,6 +36,7 @@ import BarcodeScannerDialog from '../components/BarcodeScannerDialog';
 import ReceiptDialog from '../components/ReceiptDialog';
 import { useOffline } from '../context/OfflineManager';
 import { useStore } from '../context/StoreContext';
+import { storeKey } from '../utils/storeKey';
 
 // Currency formatting helper function
 const formatCurrency = (amount) => {
@@ -174,8 +175,8 @@ const SalesPage = () => {
   // Load products from cache or API
   const loadProducts = async () => {
     // First try to load from cache
-    const cachedProducts = localStorage.getItem('holo_cached_products');
-    const cacheTimestamp = localStorage.getItem('holo_products_timestamp');
+    const cachedProducts = localStorage.getItem(storeKey('holo_cached_products'));
+    const cacheTimestamp = localStorage.getItem(storeKey('holo_products_timestamp'));
     const isCacheValid = cacheTimestamp && (Date.now() - parseInt(cacheTimestamp)) < (30 * 60 * 1000); // 30 minutes
 
     if (cachedProducts && isCacheValid) {
@@ -194,8 +195,8 @@ const SalesPage = () => {
         }
       } catch (error) {
         console.error('Failed to parse cached products:', error);
-        localStorage.removeItem('holo_cached_products');
-        localStorage.removeItem('holo_products_timestamp');
+        localStorage.removeItem(storeKey('holo_cached_products'));
+        localStorage.removeItem(storeKey('holo_products_timestamp'));
       }
     }
 
@@ -212,8 +213,8 @@ const SalesPage = () => {
         setProducts(productsWithNumericPrices);
 
         // Cache the products
-        localStorage.setItem('holo_cached_products', JSON.stringify(response.data));
-        localStorage.setItem('holo_products_timestamp', Date.now().toString());
+        localStorage.setItem(storeKey('holo_cached_products'), JSON.stringify(response.data));
+        localStorage.setItem(storeKey('holo_products_timestamp'), Date.now().toString());
 
         setLastRefresh(new Date());
       } catch (err) {
@@ -254,7 +255,7 @@ const SalesPage = () => {
     loadProducts();
 
     // Load saved cart from session
-    const savedCart = localStorage.getItem('pos-cart');
+    const savedCart = localStorage.getItem(storeKey('pos-cart'));
     if (savedCart) {
       try {
         const parsedCart = JSON.parse(savedCart);
@@ -311,8 +312,8 @@ const SalesPage = () => {
   // Session Management
   useEffect(() => {
     // Save cart to localStorage whenever it changes
-    localStorage.setItem('pos-cart', JSON.stringify(cart));
-    localStorage.setItem('pos-cart-timestamp', new Date().toISOString());
+    localStorage.setItem(storeKey('pos-cart'), JSON.stringify(cart));
+    localStorage.setItem(storeKey('pos-cart-timestamp'), new Date().toISOString());
   }, [cart]);
 
   const handleAddProduct = (product) => {
@@ -573,7 +574,7 @@ const SalesPage = () => {
         setPaidAmount("");
         setBarcodeInput("");
         setSelectedCustomer(null);
-        localStorage.removeItem('pos-cart');
+        localStorage.removeItem(storeKey('pos-cart'));
         if (scannerActive) barcodeRef.current?.focus();
       }, 500);
 
@@ -611,8 +612,8 @@ const SalesPage = () => {
       showSnackbar("✅ Sale completed!" + (selectedCustomer ? ` ${selectedCustomer.name} earned loyalty points!` : ""), "success");
 
       // Clear session data after successful sale
-      localStorage.removeItem('pos-cart');
-      localStorage.removeItem('pos-cart-timestamp');
+      localStorage.removeItem(storeKey('pos-cart'));
+      localStorage.removeItem(storeKey('pos-cart-timestamp'));
 
       // Auto-print receipt
       setTimeout(() => {
@@ -653,7 +654,7 @@ const SalesPage = () => {
           setCart([]);
           setPaidAmount("");
           setSelectedCustomer(null);
-          localStorage.removeItem('pos-cart');
+          localStorage.removeItem(storeKey('pos-cart'));
         }, 500);
       } else {
         showSnackbar("❌ Sale could not be completed", "error");
@@ -662,8 +663,8 @@ const SalesPage = () => {
   };
 
   const clearSessionData = () => {
-    localStorage.removeItem('pos-cart');
-    localStorage.removeItem('pos-cart-timestamp');
+    localStorage.removeItem(storeKey('pos-cart'));
+    localStorage.removeItem(storeKey('pos-cart-timestamp'));
     setCart([]);
     setSelectedCustomer(null);
     showSnackbar('Session data cleared', 'success');
@@ -690,8 +691,8 @@ const SalesPage = () => {
   };
 
   const clearProductCache = () => {
-    localStorage.removeItem('holo_cached_products');
-    localStorage.removeItem('holo_products_timestamp');
+    localStorage.removeItem(storeKey('holo_cached_products'));
+    localStorage.removeItem(storeKey('holo_products_timestamp'));
     showSnackbar('Product cache cleared', 'success');
     loadProducts();
   };

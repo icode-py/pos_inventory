@@ -1,8 +1,8 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 from .views import (
-    CategoryViewSet, ProductViewSet, SaleTransactionViewSet, StaffViewSet,
-    ProductListView, restock_product, sales_report, RestockHistoryViewSet,
+    SaleTransactionViewSet, StaffViewSet,
+    restock_product, sales_report, RestockHistoryViewSet,
     CustomerViewSet, CustomerTransactionViewSet, LoyaltySettingsViewSet,
     redeem_loyalty_points, store_today_sales, user_today_performance,
     BulkDiscountViewSet, register_staff,

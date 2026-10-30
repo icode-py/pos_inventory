@@ -61,11 +61,15 @@ export function StoreProvider({ children }) {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
+    // Branding and plan belong to the logged-in store, so reload on login and logout
+    window.addEventListener('auth-changed', fetchSettings);
+
     // Also re-fetch every 5 minutes as a safety net
     const interval = setInterval(fetchSettings, 5 * 60 * 1000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('auth-changed', fetchSettings);
       clearInterval(interval);
     };
   }, [fetchSettings]);

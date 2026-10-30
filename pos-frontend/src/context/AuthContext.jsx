@@ -28,6 +28,7 @@ const AuthProvider = ({ children }) => {
         localStorage.setItem("authTokens", JSON.stringify(tokens));
         setAuthTokens(tokens);
         setUser(jwtDecode(tokens.access));
+        window.dispatchEvent(new Event('auth-changed'));
         return true;
       }
     } catch (err) {
@@ -40,6 +41,7 @@ const AuthProvider = ({ children }) => {
     setAuthTokens(null);
     setUser(null);
     localStorage.removeItem("authTokens");
+    window.dispatchEvent(new Event('auth-changed'));
   };
 
   // ⏱ Refresh token every 15 minutes
