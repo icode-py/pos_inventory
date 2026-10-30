@@ -1,5 +1,16 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import axiosInstance from '../utils/axiosInstance';
+import { storeKey } from '../utils/storeKey';
+
+const CACHED_STORE = 'holo_cached_store';
+
+const readCachedStore = () => {
+  try {
+    return JSON.parse(localStorage.getItem(storeKey(CACHED_STORE)));
+  } catch {
+    return null;
+  }
+};
 
 const TIER_HIERARCHY = { STARTER: 0, GROWTH: 1, BUSINESS: 2 };
 
@@ -33,7 +44,7 @@ export function requiredTierFor(feature) {
 const StoreContext = createContext(null);
 
 export function StoreProvider({ children }) {
-  const [store, setStore] = useState({
+  const [store, setStore] = useState(() => readCachedStore() ?? {
     name: 'My Store',
     tagline: 'Modern Point of Sale',
     phone: '',
@@ -44,8 +55,15 @@ export function StoreProvider({ children }) {
   });
 
   const fetchSettings = useCallback(() => {
+    const key = storeKey(CACHED_STORE);
     axiosInstance.get('/store-settings/')
-      .then(res => setStore(res.data))
+      .then(res => {
+        setStore(res.data);
+        try {
+          // Offline receipts and plan features need these
+          localStorage.setItem(key, JSON.stringify(res.data));
+        } catch { /* storage unavailable */ }
+      })
       .catch(() => {});
   }, []);
 

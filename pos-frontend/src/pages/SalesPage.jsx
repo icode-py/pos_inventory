@@ -37,6 +37,9 @@ import ReceiptDialog from '../components/ReceiptDialog';
 import { useOffline } from '../context/OfflineManager';
 import { useStore } from '../context/StoreContext';
 import { storeKey } from '../utils/storeKey';
+import {
+  clearCachedProducts, deductCachedStock, deductStock, fetchProducts, readCachedProducts,
+} from '../utils/productCache';
 
 // Currency formatting helper function
 const formatCurrency = (amount) => {
@@ -172,60 +175,42 @@ const SalesPage = () => {
     return Math.max(0, totalPrice); // Ensure price doesn't go negative
   };
 
-  // Load products from cache or API
+  const showProducts = (list) => {
+    setProducts(list.map(product => ({
+      ...product,
+      price: typeof product.price === 'string' ? parseFloat(product.price) : product.price,
+      bulk_price: product.bulk_price ? (typeof product.bulk_price === 'string' ? parseFloat(product.bulk_price) : product.bulk_price) : null
+    })));
+  };
+
+  // Show the saved list straight away, then replace it with fresh products when online
   const loadProducts = async () => {
-    // First try to load from cache
-    const cachedProducts = localStorage.getItem(storeKey('holo_cached_products'));
-    const cacheTimestamp = localStorage.getItem(storeKey('holo_products_timestamp'));
-    const isCacheValid = cacheTimestamp && (Date.now() - parseInt(cacheTimestamp)) < (30 * 60 * 1000); // 30 minutes
+    const cachedProducts = readCachedProducts();
+    if (cachedProducts) showProducts(cachedProducts);
 
-    if (cachedProducts && isCacheValid) {
-      try {
-        const parsedProducts = JSON.parse(cachedProducts);
-        const productsWithNumericPrices = parsedProducts.map(product => ({
-          ...product,
-          price: typeof product.price === 'string' ? parseFloat(product.price) : product.price,
-          bulk_price: product.bulk_price ? (typeof product.bulk_price === 'string' ? parseFloat(product.bulk_price) : product.bulk_price) : null
-        }));
-        setProducts(productsWithNumericPrices);
-
-        if (!isOnline) {
-          showSnackbar("Using cached products (offline mode)", "info");
-          return;
-        }
-      } catch (error) {
-        console.error('Failed to parse cached products:', error);
-        localStorage.removeItem(storeKey('holo_cached_products'));
-        localStorage.removeItem(storeKey('holo_products_timestamp'));
-      }
+    if (!isOnline) {
+      showSnackbar(
+        cachedProducts ? "Using saved products (offline mode)" : "No saved products on this device yet",
+        cachedProducts ? "info" : "warning"
+      );
+      return;
     }
 
-    // If online, try to fetch fresh products
-    if (isOnline) {
-      try {
-        const response = await axiosInstance.get("products/");
-        const productsWithNumericPrices = response.data.map(product => ({
-          ...product,
-          price: typeof product.price === 'string' ? parseFloat(product.price) : product.price,
-          bulk_price: product.bulk_price ? (typeof product.bulk_price === 'string' ? parseFloat(product.bulk_price) : product.bulk_price) : null
-        }));
-
-        setProducts(productsWithNumericPrices);
-
-        // Cache the products
-        localStorage.setItem(storeKey('holo_cached_products'), JSON.stringify(response.data));
-        localStorage.setItem(storeKey('holo_products_timestamp'), Date.now().toString());
-
-        setLastRefresh(new Date());
-      } catch (err) {
-        console.error("Failed to load products from API", err);
-        if (!cachedProducts) {
-          showSnackbar("Failed to load products", "error");
-        }
+    try {
+      showProducts(await fetchProducts());
+      setLastRefresh(new Date());
+    } catch (err) {
+      console.error("Failed to load products from API", err);
+      if (!cachedProducts) {
+        showSnackbar("Failed to load products", "error");
       }
-    } else if (!cachedProducts) {
-      showSnackbar("No cached products available", "warning");
     }
+  };
+
+  // Stock on this device must drop now: the server only hears about the sale at sync
+  const deductSoldStock = () => {
+    deductCachedStock(cart);
+    setProducts(prev => deductStock(prev, cart));
   };
 
   // Customer Management Functions
@@ -267,16 +252,15 @@ const SalesPage = () => {
     }
   }, []);
 
-  // Auto-refresh products when online (optional)
+  // OfflineManager keeps the saved products fresh while the app is open
   useEffect(() => {
-    if (isOnline) {
-      const interval = setInterval(() => {
-        loadProducts();
-      }, 5 * 60 * 1000); // Refresh every 5 minutes when online
-
-      return () => clearInterval(interval);
-    }
-  }, [isOnline]);
+    const handleRefreshed = () => {
+      showProducts(readCachedProducts() || []);
+      setLastRefresh(new Date());
+    };
+    window.addEventListener('products-refreshed', handleRefreshed);
+    return () => window.removeEventListener('products-refreshed', handleRefreshed);
+  }, []);
 
   useEffect(() => {
     if (scannerActive) {
@@ -519,6 +503,7 @@ const SalesPage = () => {
   const handleCompleteSale = async () => {
     const total = calculateTotal();
     const saleData = {
+      client_ref: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
       total_amount: total,
       paid_amount: parseFloat(paidAmount),
       change_given: changeAmount,
@@ -537,6 +522,7 @@ const SalesPage = () => {
     // OFFLINE MODE: Save sale locally if offline
     if (!isOnline) {
       const offlineId = saveOfflineSale(saleData);
+      deductSoldStock();
 
       const saleWithDetails = {
         total_amount: total,
@@ -633,6 +619,7 @@ const SalesPage = () => {
       // If online sale fails, save offline as fallback
       if (err.message === "Network Error" || !err.response) {
         const offlineId = saveOfflineSale(saleData);
+        deductSoldStock();
         showSnackbar("🌐 Network error - sale saved offline", "warning");
 
         const saleWithDetails = {
@@ -682,8 +669,10 @@ const SalesPage = () => {
         showSnackbar(`✅ Synced ${syncedCount} offline sales`, 'success');
         // Refresh products after sync to get updated stock levels
         loadProducts();
-      } else {
+      } else if (pendingSales.length === 0) {
         showSnackbar('No pending sales to sync', 'info');
+      } else {
+        showSnackbar('Sales are still waiting to sync', 'warning');
       }
     } catch (error) {
       showSnackbar('❌ Sync failed', 'error');
@@ -691,8 +680,11 @@ const SalesPage = () => {
   };
 
   const clearProductCache = () => {
-    localStorage.removeItem(storeKey('holo_cached_products'));
-    localStorage.removeItem(storeKey('holo_products_timestamp'));
+    if (!isOnline) {
+      showSnackbar('Saved products are needed while offline', 'warning');
+      return;
+    }
+    clearCachedProducts();
     showSnackbar('Product cache cleared', 'success');
     loadProducts();
   };

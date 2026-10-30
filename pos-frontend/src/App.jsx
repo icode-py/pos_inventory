@@ -17,6 +17,7 @@ import CustomersPage from './pages/CustormersPage';
 import CustomerProfile from './pages/CustomerProfile';
 import BulkDiscountManager from './components/BulkDiscountManager';
 import AuditLogPage from './pages/AuditLogPage';
+import RefusedSalesPage from './pages/RefusedSalesPage';
 import SettingsPage from './pages/SettingsPage';
 import StaffPage from './pages/StaffPage';
 import PlanGuard from './components/PlanGuard';
@@ -136,6 +137,16 @@ function App() {
                     <PlanGuard feature="audit_log">
                       <AuditLogPage />
                     </PlanGuard>
+                  </Layout>
+                </RoleProtectedRoute>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/sale-reviews" element={
+              <ProtectedRoute>
+                <RoleProtectedRoute allowedRoles={['manager', 'admin']}>
+                  <Layout>
+                    <RefusedSalesPage />
                   </Layout>
                 </RoleProtectedRoute>
               </ProtectedRoute>

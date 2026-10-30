@@ -1,9 +1,10 @@
 # serializers.py
 from rest_framework import serializers
-from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, AuditLog, Store
+from .models import Category, Product, RefusedSale, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, AuditLog, Store
 from rest_framework.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F
+from django.utils import timezone
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 import re
@@ -235,10 +236,12 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
     customer_id = StoreScopedPrimaryKeyRelatedField(
         queryset=Customer.objects.all(), source='customer', write_only=True, required=False, allow_null=True
     )
+    client_ref = serializers.CharField(max_length=64, write_only=True, required=False)
+    sold_at = serializers.DateTimeField(write_only=True, required=False)
 
     class Meta:
         model = SaleTransaction
-        fields = ['id', 'cashier', 'total_amount', 'paid_amount', 'change_given', 'created_at', 'items', 'customer_name', 'customer_id']
+        fields = ['id', 'cashier', 'total_amount', 'paid_amount', 'change_given', 'created_at', 'items', 'customer_name', 'customer_id', 'client_ref', 'sold_at']
 
     def validate_total_amount(self, value):
         if value <= 0:
@@ -288,6 +291,8 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         items_data = validated_data.pop('items')
         customer = validated_data.pop('customer', None)
+        sold_at = validated_data.pop('sold_at', None)
+        allow_short_stock = self.context.get('allow_short_stock', False)
         
         request = self.context.get('request')
         if request:
@@ -303,11 +308,11 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
             product = item_data['product']
             quantity = item_data['quantity']
 
-            if product.stock < quantity:
+            if product.stock < quantity and not allow_short_stock:
                 raise ValidationError(f"Insufficient stock for {product.name}. Available: {product.stock}, Requested: {quantity}")
 
             # Deduct stock
-            product.stock -= quantity
+            product.stock = max(product.stock - quantity, 0)
             product.save()
 
             # Create SaleItem
@@ -335,7 +340,40 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
                 points_earned=points_earned,
             )
 
+        # created_at can only be set after insert. A phone clock running fast must not date a sale in the future.
+        if sold_at:
+            transaction_instance.created_at = min(sold_at, timezone.now())
+            SaleTransaction.objects.filter(pk=transaction_instance.pk).update(created_at=transaction_instance.created_at)
+
         return transaction_instance
+
+
+class RefusedSaleSerializer(serializers.ModelSerializer):
+    cashier = serializers.StringRelatedField()
+    total_amount = serializers.SerializerMethodField()
+    items = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RefusedSale
+        fields = ['id', 'cashier', 'sold_at', 'reason', 'status', 'total_amount', 'items']
+
+    def get_total_amount(self, obj):
+        return obj.payload.get('total_amount')
+
+    def get_items(self, obj):
+        items = [item for item in obj.payload.get('items') or [] if isinstance(item, dict)]
+        products = Product.objects.filter(store=obj.store, pk__in=[
+            item.get('product_id') for item in items if isinstance(item.get('product_id'), int)
+        ]).in_bulk()
+        rows = []
+        for item in items:
+            product = products.get(item.get('product_id'))
+            rows.append({
+                'name': product.name if product else 'Deleted product',
+                'quantity': item.get('quantity'),
+                'stock': product.stock if product else None,
+            })
+        return rows
 
 
 class StaffSerializer(serializers.ModelSerializer):

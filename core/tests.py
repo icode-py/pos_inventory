@@ -1,4 +1,5 @@
 """Multi-tenant isolation tests: one store must never see or change another store's data."""
+from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
 
@@ -10,7 +11,7 @@ from rest_framework.test import APIClient, APITestCase
 
 from .models import (
     AuditLog, BulkDiscount, Category, Customer, CustomerTransaction, LoyaltySettings, Product,
-    Restock, SaleItem, SaleTransaction, Staff, Store,
+    RefusedSale, Restock, SaleItem, SaleTransaction, Staff, Store,
 )
 
 TEST_SETTINGS = dict(
@@ -186,6 +187,23 @@ class WriteIsolationTests(TenantTestCase):
         sale = SaleTransaction.objects.get(pk=response.data['id'])
         self.assertEqual(sale.store, self.a['store'])
 
+    def test_resent_sale_is_recorded_once(self):
+        payload = self.sale_payload(self.a['product'], client_ref='till-1')
+        first = self.client.post('/api/sales/', payload, format='json')
+        again = self.client.post('/api/sales/', payload, format='json')
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertEqual(again.status_code, 200, again.content)
+        self.assertEqual(again.data['id'], first.data['id'])
+        self.assertEqual(SaleTransaction.objects.filter(client_ref='till-1').count(), 1)
+        self.a['product'].refresh_from_db()
+        self.assertEqual(self.a['product'].stock, 4)
+
+    def test_client_ref_is_per_store(self):
+        self.client.post('/api/sales/', self.sale_payload(self.a['product'], client_ref='till-1'), format='json')
+        self.client.force_authenticate(self.b['admin'])
+        response = self.client.post('/api/sales/', self.sale_payload(self.b['product'], client_ref='till-1'), format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+
     def test_sale_cannot_use_other_store_product(self):
         response = self.client.post('/api/sales/', self.sale_payload(self.b['product']), format='json')
         self.assertEqual(response.status_code, 400)
@@ -216,6 +234,102 @@ class WriteIsolationTests(TenantTestCase):
         self.client.post('/api/restock/', {'product_id': self.a['product'].pk, 'quantity': 1}, format='json')
         self.assertFalse(AuditLog.objects.filter(store=self.b['store'], object_repr__contains='Snacks').exists())
         self.assertEqual(AuditLog.objects.filter(store=self.a['store']).count(), 3)
+
+
+class OfflineSaleTests(TenantTestCase):
+    SOLD_AT = '2026-10-25T09:30:00Z'
+
+    def sale(self, product, ref='till-1', quantity=1, **extra):
+        total = str(500 * quantity)
+        return {'client_ref': ref, 'total_amount': total, 'paid_amount': total, 'change_given': '0',
+                'items': [{'product_id': product.pk, 'quantity': quantity, 'price_at_sale': '500'}], **extra}
+
+    def refuse(self, quantity=99):
+        """Send an offline sale for more than the 5 in stock, as the cashier."""
+        self.client.force_authenticate(self.a['cashier'])
+        response = self.client.post(
+            '/api/sales/', self.sale(self.a['product'], quantity=quantity, sold_at=self.SOLD_AT), format='json')
+        self.assertEqual(response.status_code, 202, response.content)
+        self.client.force_authenticate(self.a['admin'])
+        return RefusedSale.objects.get(client_ref='till-1')
+
+    def test_offline_sale_keeps_its_time(self):
+        payload = self.sale(self.a['product'], sold_at=self.SOLD_AT)
+        response = self.client.post('/api/sales/', payload, format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+        sale = SaleTransaction.objects.get(pk=response.data['id'])
+        self.assertEqual(sale.created_at.isoformat()[:16], self.SOLD_AT[:16])
+
+    def test_future_sale_time_is_not_trusted(self):
+        future = (timezone.now() + timedelta(days=30)).isoformat()
+        response = self.client.post('/api/sales/', self.sale(self.a['product'], sold_at=future), format='json')
+        sale = SaleTransaction.objects.get(pk=response.data['id'])
+        self.assertLessEqual(sale.created_at, timezone.now())
+
+    def test_refused_offline_sale_is_held_without_touching_stock(self):
+        refused = self.refuse()
+        self.assertEqual(refused.status, 'PENDING')
+        self.assertEqual(refused.cashier, self.a['cashier'])
+        self.assertIn('Insufficient stock', refused.reason)
+        self.a['product'].refresh_from_db()
+        self.assertEqual(self.a['product'].stock, 5)
+
+    def test_resending_a_refused_sale_keeps_one_review(self):
+        self.refuse()
+        self.client.force_authenticate(self.a['cashier'])
+        again = self.sale(self.a['product'], quantity=99, sold_at=self.SOLD_AT)
+        self.assertEqual(self.client.post('/api/sales/', again, format='json').status_code, 202)
+        self.assertEqual(RefusedSale.objects.count(), 1)
+
+    def test_online_sale_is_still_refused(self):
+        response = self.client.post('/api/sales/', self.sale(self.a['product'], quantity=99), format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(RefusedSale.objects.count(), 0)
+
+    def test_manager_sees_only_own_store(self):
+        self.refuse()
+        self.assertEqual(len(self.client.get('/api/refused-sales/').data), 1)
+        self.client.force_authenticate(self.b['admin'])
+        self.assertEqual(self.client.get('/api/refused-sales/').data, [])
+
+    def test_other_store_and_cashier_cannot_decide(self):
+        refused = self.refuse()
+        self.client.force_authenticate(self.b['admin'])
+        self.assertEqual(self.client.post(f'/api/refused-sales/{refused.pk}/approve/').status_code, 404)
+        self.client.force_authenticate(self.a['cashier'])
+        self.assertEqual(self.client.post(f'/api/refused-sales/{refused.pk}/approve/').status_code, 403)
+        refused.refresh_from_db()
+        self.assertEqual(refused.status, 'PENDING')
+
+    def test_approve_records_sale_at_real_time_and_empties_stock(self):
+        refused = self.refuse()
+        response = self.client.post(f'/api/refused-sales/{refused.pk}/approve/')
+        self.assertEqual(response.status_code, 200, response.content)
+        refused.refresh_from_db()
+        self.assertEqual(refused.status, 'APPROVED')
+        self.assertEqual(refused.reviewed_by, self.a['admin'])
+        self.assertEqual(refused.sale.cashier, self.a['cashier'])
+        self.assertEqual(refused.sale.created_at.isoformat()[:16], self.SOLD_AT[:16])
+        self.a['product'].refresh_from_db()
+        self.assertEqual(self.a['product'].stock, 0)
+        self.assertEqual(self.client.post(f'/api/refused-sales/{refused.pk}/approve/').status_code, 404)
+        self.assertEqual(SaleTransaction.objects.filter(client_ref='till-1').count(), 1)
+
+    def test_dismiss_records_nothing(self):
+        refused = self.refuse()
+        self.assertEqual(self.client.post(f'/api/refused-sales/{refused.pk}/dismiss/').status_code, 200)
+        self.assertFalse(SaleTransaction.objects.filter(client_ref='till-1').exists())
+        self.a['product'].refresh_from_db()
+        self.assertEqual(self.a['product'].stock, 5)
+        self.assertEqual(self.client.get('/api/refused-sales/').data, [])
+
+    def test_approve_explains_a_deleted_product(self):
+        refused = self.refuse()
+        refused.payload['items'][0]['product_id'] = 999999
+        refused.save()
+        self.assertEqual(self.client.post(f'/api/refused-sales/{refused.pk}/approve/').status_code, 400)
+        refused.refresh_from_db()
+        self.assertEqual(refused.status, 'PENDING')
 
 
 class UniquenessTests(TenantTestCase):

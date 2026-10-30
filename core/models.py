@@ -86,9 +86,45 @@ class SaleTransaction(models.Model):
     paid_amount = models.DecimalField(max_digits=15, decimal_places=2)
     change_given = models.DecimalField(max_digits=15, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set by the till, so a sale resent after a dropped connection is only recorded once
+    client_ref = models.CharField(max_length=64, null=True, blank=True, editable=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['store', 'client_ref'], name='unique_client_ref_per_store'),
+        ]
 
     def __str__(self):
         return f"Sale #{self.id} - {self.created_at}"
+
+
+class RefusedSale(models.Model):
+    """An offline sale the server turned down. The cash was already taken, so a manager decides."""
+    STATUS_CHOICES = [
+        ('PENDING',   'Pending'),
+        ('APPROVED',  'Approved'),
+        ('DISMISSED', 'Dismissed'),
+    ]
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    cashier = models.ForeignKey('Staff', on_delete=models.SET_NULL, null=True, related_name='refused_sales')
+    client_ref = models.CharField(max_length=64)
+    payload = models.JSONField()
+    reason = models.CharField(max_length=500)
+    sold_at = models.DateTimeField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PENDING')
+    sale = models.ForeignKey(SaleTransaction, on_delete=models.SET_NULL, null=True, blank=True)
+    reviewed_by = models.ForeignKey('Staff', on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_sales')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['sold_at']
+        constraints = [
+            models.UniqueConstraint(fields=['store', 'client_ref'], name='unique_refused_sale_per_store'),
+        ]
+
+    def __str__(self):
+        return f"Refused sale {self.client_ref} ({self.status})"
 
 
 class SaleItem(models.Model):

@@ -1,7 +1,8 @@
 # views.py
 from django.shortcuts import render
 from rest_framework import viewsets, permissions, status
-from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -9,17 +10,19 @@ from rest_framework.throttling import UserRateThrottle, AnonRateThrottle, Scoped
 import logging
 
 logger = logging.getLogger(__name__)
+from django.db import IntegrityError, transaction
 from django.db.models import Sum, Count, F, FloatField, ExpressionWrapper
-from django.utils.dateparse import parse_date
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils import timezone
 from datetime import timedelta
 from django.http import HttpResponse
 from .permissions import IsManagerOrAdmin, IsCashier, IsCashierOrManager, make_tier_permission, tier_block_response, current_store
 from .tier_config import CASHIER_LIMITS
-from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, AuditLog, Store
+from .models import Category, Product, RefusedSale, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, AuditLog, Store
 from .serializers import (
     CategorySerializer,
     ProductSerializer,
+    RefusedSaleSerializer,
     SaleTransactionSerializer,
     StaffSerializer,
     RestockSerializer,
@@ -65,11 +68,54 @@ class StoreScopedMixin:
         serializer.save(store=current_store(self.request))
 
 
+def error_text(detail):
+    if isinstance(detail, dict):
+        detail = list(detail.values())
+    if isinstance(detail, list):
+        return ' '.join(error_text(item) for item in detail)
+    return str(detail)
+
+
 class SaleTransactionViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     queryset = SaleTransaction.objects.all().order_by('-created_at')
     serializer_class = SaleTransactionSerializer
     permission_classes = [IsCashierOrManager]
     pagination_class = None
+
+    def _already_recorded(self, client_ref):
+        sale = SaleTransaction.objects.filter(store=current_store(self.request), client_ref=client_ref).first()
+        return sale and Response(self.get_serializer(sale).data, status=status.HTTP_200_OK)
+
+    def create(self, request, *args, **kwargs):
+        client_ref = request.data.get('client_ref')
+        if not client_ref:
+            return super().create(request, *args, **kwargs)
+        existing = self._already_recorded(client_ref)
+        if existing:
+            return existing
+        try:
+            return super().create(request, *args, **kwargs)
+        except IntegrityError:
+            # The same sale arrived twice at once: the first one won
+            return self._already_recorded(client_ref)
+        except ValidationError as error:
+            # An offline sale has already happened, so refusing it here would lose the record
+            if not request.data.get('sold_at'):
+                raise
+            return self._hold_for_review(client_ref, error)
+
+    def _hold_for_review(self, client_ref, error):
+        RefusedSale.objects.get_or_create(
+            store=current_store(self.request),
+            client_ref=client_ref,
+            defaults={
+                'cashier': self.request.user,
+                'payload': self.request.data,
+                'reason': error_text(error.detail)[:500],
+                'sold_at': parse_datetime(str(self.request.data['sold_at'])) or timezone.now(),
+            },
+        )
+        return Response({'held_for_review': True}, status=status.HTTP_202_ACCEPTED)
 
     def perform_create(self, serializer):
         serializer.save(store=current_store(self.request), cashier=self.request.user)
@@ -459,6 +505,48 @@ class AuditedProductViewSet(AuditMixin, viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RefusedSaleViewSet(AuditMixin, viewsets.ReadOnlyModelViewSet):
+    queryset = RefusedSale.objects.select_related('cashier', 'store').filter(status='PENDING')
+    serializer_class = RefusedSaleSerializer
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
+    pagination_class = None
+
+    def _pending(self, pk):
+        return self.get_queryset().select_for_update(of=('self',)).filter(pk=pk).first()
+
+    def _close(self, refused, new_status, sale=None):
+        refused.status = new_status
+        refused.sale = sale
+        refused.reviewed_by = self.request.user
+        refused.reviewed_at = timezone.now()
+        refused.save()
+        self._log('UPDATE', refused, {'status': {'from': 'PENDING', 'to': new_status}})
+        return Response(self.get_serializer(refused).data)
+
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
+    def approve(self, request, pk=None):
+        """Record the sale as it happened. Stock that was already short stops at zero."""
+        refused = self._pending(pk)
+        if not refused:
+            return Response({'detail': 'This sale has already been reviewed.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = SaleTransactionSerializer(
+            data=refused.payload, context={'request': request, 'allow_short_stock': True}
+        )
+        serializer.is_valid(raise_exception=True)
+        sale = serializer.save(store=refused.store, cashier=refused.cashier)
+        return self._close(refused, 'APPROVED', sale)
+
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
+    def dismiss(self, request, pk=None):
+        """Close it without recording a sale or touching stock."""
+        refused = self._pending(pk)
+        if not refused:
+            return Response({'detail': 'This sale has already been reviewed.'}, status=status.HTTP_404_NOT_FOUND)
+        return self._close(refused, 'DISMISSED')
 
 
 class AuditLogViewSet(StoreScopedMixin, viewsets.ReadOnlyModelViewSet):
