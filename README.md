@@ -1,6 +1,6 @@
 # HOLO POS — Point-of-Sale & Inventory Management System
 
-A full-stack POS and inventory platform built for Nigerian supermarkets and retail stores. Each client gets a dedicated deployment — their own server, their own database, their own URL. No shared data.
+A full-stack POS and inventory platform built for Nigerian supermarkets and retail stores. One deployment serves many stores. Each store's data is kept separate, and each has its own staff, branding and plan.
 
 ---
 
@@ -23,7 +23,7 @@ A full-stack POS and inventory platform built for Nigerian supermarkets and reta
 
 **Backend**
 - Python 3.13 / Django 5.2 / Django REST Framework 3.16
-- PostgreSQL (per-client dedicated database)
+- PostgreSQL (shared database; every record belongs to a store)
 - Simple JWT for authentication
 - django-import-export for bulk Excel upload
 - Hosted on Render
@@ -33,7 +33,29 @@ A full-stack POS and inventory platform built for Nigerian supermarkets and reta
 - Material UI (MUI) v7
 - Chart.js / react-chartjs-2
 - Axios
-- Hosted on Render (static site)
+- Hosted on Vercel
+
+---
+
+## Multi-Store Setup
+
+Each `Store` is a tenant. A staff account belongs to one store, and everyone signs in on the same page.
+
+**Add a store:** in Django admin (`/admin/`), add a **Store**, then add a **Staff** account with that store and "Is admin" ticked. Or run:
+
+```bash
+python manage.py create_store --name "Store Name" --admin-username owner1 --admin-password <password> --tier GROWTH
+```
+
+**Change a plan or suspend a store:** edit the Store in Django admin. Unticking "Is active" locks out its staff immediately.
+
+**Rules when adding code:**
+- Viewsets on store-owned models use `StoreScopedMixin` (or `AuditMixin`, which includes it).
+- Function views get the store from `current_store(request)`.
+- Serializer foreign keys use `StoreScopedPrimaryKeyRelatedField`.
+- Add a case to `core/tests.py` for anything new. Run the tests with `python manage.py test core`.
+
+Usernames are unique across all stores, because the shared login page has no other way to tell stores apart.
 
 ---
 

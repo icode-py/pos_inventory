@@ -1,3 +1,4 @@
+from django.core.management.color import no_style
 from django.db import migrations
 
 STORE_OWNED = ['Category', 'Product', 'SaleTransaction', 'Restock', 'Customer',
@@ -8,6 +9,13 @@ def assign_to_first_store(apps, schema_editor):
     """Everything that exists today belongs to the one store this deployment has served."""
     Store = apps.get_model('core', 'Store')
     models = [apps.get_model('core', name) for name in STORE_OWNED]
+
+    # The old singleton was saved with a forced pk=1, which leaves the Postgres id counter
+    # behind, so the next store would collide with it. No-op on SQLite.
+    connection = schema_editor.connection
+    with connection.cursor() as cursor:
+        for sql in connection.ops.sequence_reset_sql(no_style(), [Store]):
+            cursor.execute(sql)
 
     if not any(m.objects.exists() for m in models):
         return  # fresh database, nothing to assign
