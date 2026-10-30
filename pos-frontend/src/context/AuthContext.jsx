@@ -55,15 +55,19 @@ const AuthProvider = ({ children }) => {
   }, [authTokens]);
 
   const refreshToken = async () => {
+    // Read from storage: axiosInstance may have rotated the tokens since this render
+    const current = JSON.parse(localStorage.getItem("authTokens"));
+    if (!current) return;
+
     try {
       const response = await axios.post(`${API_URL}/token/refresh/`, {
-        refresh: authTokens.refresh,
+        refresh: current.refresh,
       });
 
       if (response.status === 200) {
         const tokens = {
           access: response.data.access,
-          refresh: response.data.refresh || authTokens.refresh,
+          refresh: response.data.refresh || current.refresh,
         };
         localStorage.setItem("authTokens", JSON.stringify(tokens));
         setAuthTokens(tokens);
@@ -73,7 +77,8 @@ const AuthProvider = ({ children }) => {
       }
     } catch (err) {
       console.error("Token refresh failed:", err);
-      logoutUser();
+      // No response means no connection, so stay logged in and keep selling offline
+      if (err.response) logoutUser();
     }
   };
 

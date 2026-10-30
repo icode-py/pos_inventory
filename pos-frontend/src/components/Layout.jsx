@@ -24,6 +24,7 @@ import {
   Refresh as RefreshIcon,
   Warning as WarningIcon,
   History as AuditIcon,
+  RuleFolder as ReviewIcon,
   ErrorOutline as CriticalIcon,
   LightMode as LightModeIcon,
   DarkMode as DarkModeIcon,
@@ -53,6 +54,7 @@ const Layout = ({ children }) => {
   const [anchorEl, setAnchorEl] = useState(null);
   const [notifAnchorEl, setNotifAnchorEl] = useState(null);
   const [lowStockAlerts, setLowStockAlerts] = useState([]);
+  const [refusedCount, setRefusedCount] = useState(0);
   const [todayStats, setTodayStats] = useState({
     sales: 0,
     transactions: 0,
@@ -122,6 +124,25 @@ const Layout = ({ children }) => {
     return () => clearInterval(interval);
   }, [user]);
 
+  useEffect(() => {
+    if (user?.role !== 'manager' && user?.role !== 'admin') return;
+    const fetchRefusedCount = async () => {
+      try {
+        const res = await axiosInstance.get('/refused-sales/');
+        setRefusedCount(res.data.length);
+      } catch {
+        // silently ignore
+      }
+    };
+    fetchRefusedCount();
+    const interval = setInterval(fetchRefusedCount, 60000);
+    window.addEventListener('refused-sales-changed', fetchRefusedCount);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('refused-sales-changed', fetchRefusedCount);
+    };
+  }, [user]);
+
   // Also update stats when route changes (after sales)
   useEffect(() => {
     fetchTodayStats();
@@ -154,7 +175,8 @@ const Layout = ({ children }) => {
     { text: "Restock",      icon: <RestockIcon />,         path: "/restock",        restricted: true, section: null },
     { text: "Sales Reports",icon: <TrendingUpIcon />,      path: "/reports/sales",  restricted: true, section: "ANALYTICS" },
     { text: "Customers",    icon: <PeopleIcon />,          path: "/customers",      restricted: true, feature: 'customer_loyalty', section: null },
-    { text: "Staff",        icon: <ManageAccountsIcon />,  path: "/staff",          restricted: true, section: "MANAGEMENT" },
+    { text: "Sale Reviews", icon: <Badge badgeContent={refusedCount || null} color="error"><ReviewIcon /></Badge>, path: "/sale-reviews", restricted: true, section: "MANAGEMENT" },
+    { text: "Staff",        icon: <ManageAccountsIcon />,  path: "/staff",          restricted: true, section: null },
     { text: "Audit Log",    icon: <AuditIcon />,           path: "/audit-log",      restricted: true, feature: 'audit_log', section: null },
     { text: "Settings",     icon: <SettingsIcon />,        path: "/settings",       section: "SYSTEM" },
   ];
@@ -587,6 +609,7 @@ const Layout = ({ children }) => {
         component="main"
         sx={{
           flexGrow: 1,
+          minWidth: 0, // otherwise wide content stretches the page past the screen
           p: { xs: 1, sm: 2, md: 3 },
           width: { md: `calc(100% - ${drawerWidth}px)` },
           minHeight: '100vh',

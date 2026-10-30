@@ -62,9 +62,13 @@ axiosInstance.interceptors.response.use(
         return axiosInstance(originalRequest);
         
       } catch (refreshError) {
-        // Clear tokens and redirect to login if refresh fails
-        localStorage.removeItem('authTokens');
-        window.location.href = '/login';
+        // Clear tokens and redirect to login if refresh fails. A lost connection says
+        // nothing about the session, and the login page can't work offline.
+        const connectionLost = refreshError.isAxiosError && !refreshError.response;
+        if (!connectionLost) {
+          localStorage.removeItem('authTokens');
+          window.location.href = '/login';
+        }
         return Promise.reject(refreshError);
       }
     }

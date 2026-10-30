@@ -17,10 +17,11 @@ import {
     });
   
     useEffect(() => {
+      if (!open) return;
       axiosInstance.get("categories/")
         .then(res => setCategories(res.data))
         .catch(err => console.error("Failed to load categories:", err));
-    }, []);
+    }, [open]);
   
     const handleChange = (e) => {
       setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));

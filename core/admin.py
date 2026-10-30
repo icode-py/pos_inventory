@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, Product, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, Store
+from .models import Category, Product, RefusedSale, SaleTransaction, SaleItem, Staff, Restock, Customer, CustomerTransaction, LoyaltySettings, BulkDiscount, Store
 from django.contrib.auth.admin import UserAdmin
 from django.utils.translation import gettext_lazy as _
 # Register your models here.
@@ -16,6 +16,7 @@ class StoreFilteredAdmin(admin.ModelAdmin):
 admin.site.register(Category, StoreFilteredAdmin)
 admin.site.register(Product, StoreFilteredAdmin)
 admin.site.register(SaleTransaction, StoreFilteredAdmin)
+admin.site.register(RefusedSale, StoreFilteredAdmin)
 admin.site.register(SaleItem)
 admin.site.register(Restock, StoreFilteredAdmin)
 admin.site.register(Customer, StoreFilteredAdmin)

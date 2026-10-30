@@ -1,7 +1,7 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 from .views import (
-    SaleTransactionViewSet, StaffViewSet,
+    SaleTransactionViewSet, StaffViewSet, RefusedSaleViewSet,
     restock_product, sales_report, RestockHistoryViewSet,
     CustomerViewSet, CustomerTransactionViewSet, LoyaltySettingsViewSet,
     redeem_loyalty_points, store_today_sales, user_today_performance,
@@ -16,6 +16,7 @@ router = DefaultRouter()
 router.register(r'categories', AuditedCategoryViewSet)
 router.register(r'products', AuditedProductViewSet)
 router.register(r'sales', SaleTransactionViewSet)
+router.register(r'refused-sales', RefusedSaleViewSet, basename='refused-sales')
 router.register(r'staff', StaffViewSet)
 router.register(r'restock-history', RestockHistoryViewSet, basename='restock-history')
 router.register(r'customers', CustomerViewSet, basename='customers')
