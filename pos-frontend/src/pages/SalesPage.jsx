@@ -542,7 +542,7 @@ const SalesPage = () => {
       items: cart.map(item => ({
         product_id: item.product.id,
         quantity: item.quantity,
-        price_at_sale: calculateItemPrice(item.product, item.quantity) / item.quantity // Average unit price
+        price_at_sale: Math.round((calculateItemPrice(item.product, item.quantity) / item.quantity) * 100) / 100 // Average unit price
       }))
     };
 
@@ -569,7 +569,7 @@ const SalesPage = () => {
             name: item.product.name
           },
           quantity: item.quantity,
-          price_at_sale: calculateItemPrice(item.product, item.quantity) / item.quantity
+          price_at_sale: Math.round((calculateItemPrice(item.product, item.quantity) / item.quantity) * 100) / 100
         })),
         timestamp: new Date().toLocaleString(),
         customer: selectedCustomer ? {
@@ -616,7 +616,7 @@ const SalesPage = () => {
             name: item.product.name
           },
           quantity: item.quantity,
-          price_at_sale: calculateItemPrice(item.product, item.quantity) / item.quantity
+          price_at_sale: Math.round((calculateItemPrice(item.product, item.quantity) / item.quantity) * 100) / 100
         })),
         timestamp: new Date().toLocaleString(),
         customer: selectedCustomer ? {

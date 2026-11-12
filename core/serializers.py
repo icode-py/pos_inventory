@@ -7,6 +7,7 @@ from django.db.models import F
 from django.utils import timezone
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
+import decimal
 import re
 import logging
 
@@ -23,6 +24,23 @@ class StoreScopedPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
         store = getattr(getattr(request, 'user', None), 'store', None)
         queryset = super().get_queryset()
         return queryset.filter(store=store) if store else queryset.none()
+
+
+class MoneyField(serializers.DecimalField):
+    """A naira amount rounded to kobo instead of refused when it has more decimals.
+
+    A line of 2 packs + 1 single (e.g. ₦1,850 for 41 sachets) sends an average unit
+    price of 45.1219…, which a plain DecimalField rejects and so the whole sale fails.
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault('max_digits', 15)
+        kwargs.setdefault('decimal_places', 2)
+        super().__init__(**kwargs)
+
+    def validate_precision(self, value):
+        return super().validate_precision(
+            value.quantize(decimal.Decimal(1).scaleb(-self.decimal_places), rounding=decimal.ROUND_HALF_UP))
 
 
 class UniqueInStoreMixin:
@@ -215,6 +233,7 @@ class SaleItemSerializer(serializers.ModelSerializer):
     product_id = StoreScopedPrimaryKeyRelatedField(
         queryset=Product.objects.all(), source='product', write_only=True
     )
+    price_at_sale = MoneyField(max_digits=10)
 
     class Meta:
         model = SaleItem
@@ -244,6 +263,9 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
     )
     client_ref = serializers.CharField(max_length=64, write_only=True, required=False)
     sold_at = serializers.DateTimeField(write_only=True, required=False)
+    total_amount = MoneyField()
+    paid_amount = MoneyField()
+    change_given = MoneyField()
 
     class Meta:
         model = SaleTransaction
