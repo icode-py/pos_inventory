@@ -78,6 +78,8 @@ const SalesPage = () => {
   const [changeAmount, setChangeAmount] = useState(0);
   const [suggestedAmounts, setSuggestedAmounts] = useState([]);
   const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
+  // Quantity typed in for one cart line: { product, packs, singles }
+  const [quantityEdit, setQuantityEdit] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [customerLookupOpen, setCustomerLookupOpen] = useState(false);
   const [customerQuickAddOpen, setCustomerQuickAddOpen] = useState(false);
@@ -447,6 +449,36 @@ const SalesPage = () => {
     }
   };
 
+  const packSize = (product) => (product.is_bulk_product && product.bulk_quantity > 1 ? product.bulk_quantity : null);
+
+  const openQuantityEdit = (item) => {
+    const size = packSize(item.product);
+    setQuantityEdit({
+      product: item.product,
+      packs: size ? String(Math.floor(item.quantity / size)) : '',
+      singles: String(size ? item.quantity % size : item.quantity),
+    });
+  };
+
+  const quantityFromEdit = (edit) => {
+    const size = packSize(edit.product) || 0;
+    return (parseInt(edit.packs) || 0) * size + (parseInt(edit.singles) || 0);
+  };
+
+  const saveQuantityEdit = () => {
+    const qty = quantityFromEdit(quantityEdit);
+    if (qty < 1) {
+      showSnackbar('Quantity must be at least 1', 'warning');
+      return;
+    }
+    if (qty > quantityEdit.product.stock) {
+      showSnackbar(`Only ${quantityEdit.product.stock} in stock`, 'warning');
+      return;
+    }
+    handleQuantityChange(quantityEdit.product.id, qty);
+    setQuantityEdit(null);
+  };
+
   const decrementQuantity = (productId) => {
     const item = cart.find(item => item.product.id === productId);
     if (item && item.quantity > 1) {
@@ -750,9 +782,16 @@ const SalesPage = () => {
             >
               <RemoveIcon fontSize="small" />
             </IconButton>
-            <Typography variant="body2" sx={{ minWidth: 20, textAlign: 'center' }}>
-              {item.quantity}
-            </Typography>
+            <Tooltip title="Type a quantity">
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => openQuantityEdit(item)}
+                sx={{ minWidth: 44, px: 1 }}
+              >
+                {item.quantity}
+              </Button>
+            </Tooltip>
             <IconButton
               size="small"
               onClick={() => incrementQuantity(product.id)}
@@ -760,6 +799,23 @@ const SalesPage = () => {
               <AddIcon fontSize="small" />
             </IconButton>
           </Box>
+          {packSize(product) && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
+              <Button
+                size="small"
+                onClick={() => onQuantityChange(product.id, item.quantity + product.bulk_quantity)}
+                sx={{ px: 1, minWidth: 0 }}
+              >
+                +1 pack
+              </Button>
+              {item.quantity >= product.bulk_quantity && (
+                <Typography variant="caption" color="text.secondary">
+                  {Math.floor(item.quantity / product.bulk_quantity)} {Math.floor(item.quantity / product.bulk_quantity) === 1 ? 'pack' : 'packs'}
+                  {item.quantity % product.bulk_quantity > 0 && ` + ${item.quantity % product.bulk_quantity}`}
+                </Typography>
+              )}
+            </Box>
+          )}
         </TableCell>
         <TableCell>
           <Box>
@@ -1353,6 +1409,55 @@ const SalesPage = () => {
 
       {/* Keyboard Shortcuts Dialog */}
       <ShortcutsDialog />
+
+      <Dialog open={Boolean(quantityEdit)} onClose={() => setQuantityEdit(null)} maxWidth="xs" fullWidth>
+        {quantityEdit && (
+          <>
+            <DialogTitle>{quantityEdit.product.name}</DialogTitle>
+            <DialogContent>
+              <Box
+                component="form"
+                onSubmit={(e) => { e.preventDefault(); saveQuantityEdit(); }}
+                sx={{ display: 'flex', gap: 2, pt: 1 }}
+              >
+                {packSize(quantityEdit.product) && (
+                  <TextField
+                    label="Packs"
+                    type="number"
+                    autoFocus
+                    fullWidth
+                    value={quantityEdit.packs}
+                    onChange={(e) => setQuantityEdit(prev => ({ ...prev, packs: e.target.value }))}
+                    helperText={`${quantityEdit.product.bulk_quantity} ${quantityEdit.product.unit_of_measure || 'units'} each`}
+                    slotProps={{ htmlInput: { min: 0, inputMode: 'numeric' } }}
+                  />
+                )}
+                <TextField
+                  label={packSize(quantityEdit.product) ? 'Extra single items' : 'Quantity'}
+                  type="number"
+                  autoFocus={!packSize(quantityEdit.product)}
+                  fullWidth
+                  value={quantityEdit.singles}
+                  onChange={(e) => setQuantityEdit(prev => ({ ...prev, singles: e.target.value }))}
+                  slotProps={{ htmlInput: { min: 0, inputMode: 'numeric' } }}
+                />
+                <button type="submit" hidden />
+              </Box>
+              <Typography variant="body2" sx={{ mt: 2 }}>
+                Total: <strong>{quantityFromEdit(quantityEdit)}</strong> {quantityEdit.product.unit_of_measure || 'units'}
+                {' · '}{formatCurrency(calculateItemPrice(quantityEdit.product, quantityFromEdit(quantityEdit)))}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {quantityEdit.product.stock} in stock
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setQuantityEdit(null)}>Cancel</Button>
+              <Button variant="contained" onClick={saveQuantityEdit}>Set quantity</Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
 
       {/* Customer Management Modals */}
       <CustomerLookupModal
