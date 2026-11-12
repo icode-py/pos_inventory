@@ -32,10 +32,11 @@ const AuthProvider = ({ children }) => {
       if (response.status === 200) {
         const tokens = response.data;
         localStorage.setItem("authTokens", JSON.stringify(tokens));
+        const loggedIn = jwtDecode(tokens.access);
         setAuthTokens(tokens);
-        setUser(jwtDecode(tokens.access));
+        setUser(loggedIn);
         window.dispatchEvent(new Event('auth-changed'));
-        return true;
+        return loggedIn;
       }
     } catch (err) {
       console.error("Login failed:", err);

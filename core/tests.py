@@ -4,6 +4,7 @@ from decimal import Decimal
 from io import BytesIO
 
 import openpyxl
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
@@ -549,3 +550,90 @@ class LoginTests(TenantTestCase):
         self.client.force_authenticate(root)
         self.assertEqual(self.client.get('/api/products/').status_code, 403)
         self.assertEqual(self.client.get('/api/sales-report/').status_code, 403)
+
+
+class PlatformTests(TenantTestCase):
+    URL = '/api/platform/stores/'
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()  # these tests log in more often than the 5-a-minute login limit allows
+        self.owner = Staff.objects.create_superuser('owner', password='pw12345', store=self.a['store'])
+        self.client.force_authenticate(self.owner)
+
+    def new_store(self, **extra):
+        return self.client.post(self.URL, {
+            'name': 'Charlie Mart', 'plan_tier': 'GROWTH',
+            'admin_username': 'charlie_admin', 'admin_password': 'Strong-pass-2026', **extra,
+        }, format='json')
+
+    def test_store_admins_and_cashiers_are_kept_out(self):
+        for user in (self.a['admin'], self.a['cashier']):
+            self.client.force_authenticate(user)
+            self.assertEqual(self.client.get(self.URL).status_code, 403)
+            self.assertEqual(self.new_store().status_code, 403)
+            self.assertEqual(self.client.patch(
+                f"{self.URL}{self.b['store'].pk}/", {'plan_tier': 'STARTER'}, format='json').status_code, 403)
+        self.assertFalse(Store.objects.filter(name='Charlie Mart').exists())
+
+    def test_lists_every_store_with_figures(self):
+        rows = {row['name']: row for row in self.client.get(self.URL).data}
+        self.assertEqual(set(rows), {'alpha', 'bravo'})
+        alpha = rows['alpha']
+        self.assertEqual(alpha['admins'], ['alpha_admin'])
+        self.assertEqual(alpha['product_count'], 1)
+        self.assertEqual(alpha['sales_30d_count'], 1)
+        self.assertEqual(Decimal(alpha['sales_30d_total']), Decimal('500'))
+        self.assertIsNotNone(alpha['last_sale_at'])
+        self.assertEqual(alpha['staff_count'], 3)  # admin, cashier and the owner
+
+    def test_create_store_with_admin_who_can_log_in(self):
+        response = self.new_store()
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.data['admins'], ['charlie_admin'])
+        store = Store.objects.get(name='Charlie Mart')
+        self.assertEqual(store.plan_tier, 'GROWTH')
+        login = APIClient().post('/api/token/', {'username': 'charlie_admin', 'password': 'Strong-pass-2026'}, format='json')
+        self.assertEqual(login.status_code, 200, login.content)
+        admin = Staff.objects.get(username='charlie_admin')
+        self.assertEqual((admin.store, admin.is_admin, admin.is_superuser), (store, True, False))
+
+    def test_create_refuses_taken_username_and_weak_password(self):
+        self.assertIn('admin_username', self.new_store(admin_username='ALPHA_admin').data)
+        self.assertEqual(self.new_store(admin_password='123').status_code, 400)
+        self.assertFalse(Store.objects.filter(name='Charlie Mart').exists())
+
+    def test_change_plan_and_suspend(self):
+        url = f"{self.URL}{self.b['store'].pk}/"
+        response = self.client.patch(url, {'plan_tier': 'STARTER', 'is_active': False}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        store = Store.objects.get(pk=self.b['store'].pk)
+        self.assertEqual((store.plan_tier, store.is_active), ('STARTER', False))
+        # Suspended staff are refused on their next request
+        self.client.force_authenticate(None)
+        self.assertEqual(APIClient().post(
+            '/api/token/', {'username': 'bravo_admin', 'password': 'pw12345'}, format='json').status_code, 401)
+
+    def test_cannot_suspend_own_store(self):
+        response = self.client.patch(f"{self.URL}{self.a['store'].pk}/", {'is_active': False}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(Store.objects.get(pk=self.a['store'].pk).is_active)
+
+    def test_stores_cannot_be_deleted_here(self):
+        self.assertEqual(self.client.delete(f"{self.URL}{self.b['store'].pk}/").status_code, 405)
+
+    def test_reset_password_only_within_that_store(self):
+        url = f"{self.URL}{self.b['store'].pk}/reset-password/"
+        response = self.client.post(url, {'username': 'bravo_admin', 'password': 'New-pass-2026'}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(Staff.objects.get(username='bravo_admin').check_password('New-pass-2026'))
+        wrong_store = self.client.post(url, {'username': 'alpha_admin', 'password': 'New-pass-2026'}, format='json')
+        self.assertEqual(wrong_store.status_code, 400)
+        self.assertTrue(Staff.objects.get(username='alpha_admin').check_password('pw12345'))
+
+    def test_login_token_marks_platform_owner(self):
+        from rest_framework_simplejwt.tokens import AccessToken
+        login = APIClient().post('/api/token/', {'username': 'owner', 'password': 'pw12345'}, format='json')
+        self.assertTrue(AccessToken(login.data['access'])['is_platform'])
+        login = APIClient().post('/api/token/', {'username': 'alpha_admin', 'password': 'pw12345'}, format='json')
+        self.assertFalse(AccessToken(login.data['access'])['is_platform'])

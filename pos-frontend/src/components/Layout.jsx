@@ -6,6 +6,7 @@ import {
 } from "@mui/material";
 import {
   Dashboard as DashboardIcon,
+  Storefront as PlatformIcon,
   Inventory as InventoryIcon,
   Receipt as ReceiptIcon,
   ShoppingCart as ShoppingCartIcon,
@@ -179,8 +180,14 @@ const Layout = ({ children }) => {
     { text: "Staff",        icon: <ManageAccountsIcon />,  path: "/staff",          restricted: true, section: null },
     { text: "Audit Log",    icon: <AuditIcon />,           path: "/audit-log",      restricted: true, feature: 'audit_log', section: null },
     { text: "Settings",     icon: <SettingsIcon />,        path: "/settings",       section: "SYSTEM" },
+    { text: "Platform",     icon: <PlatformIcon />,        path: "/platform",       platform: true, section: "PLATFORM" },
   ];
-  const menuItems = allMenuItems.filter(item => !item.restricted || isManagerOrAdmin);
+  // A platform account with no store of its own only has the platform page
+  const menuItems = allMenuItems.filter(item => {
+    if (item.platform) return user?.is_platform;
+    if (!user?.store_id) return false;
+    return !item.restricted || isManagerOrAdmin;
+  });
 
   const formatCurrency = (amount) => {
     return `₦${parseFloat(amount || 0).toLocaleString('en-NG', {

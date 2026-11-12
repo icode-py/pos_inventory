@@ -49,9 +49,9 @@ function Login() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const success = await loginUser(username, password);
-    if (success) {
-      navigate("/dashboard");
+    const loggedIn = await loginUser(username, password);
+    if (loggedIn) {
+      navigate(loggedIn.store_id ? "/dashboard" : "/platform");
     } else {
       setError("Invalid username or password. Please try again.");
     }
