@@ -754,7 +754,7 @@ function ProductsPage() {
           fetchProducts();
           showSnackbar("Product added successfully");
         }}
-        onError={() => showSnackbar("Failed to add product", "error")}
+        onError={(reason) => showSnackbar(reason ? `Could not add product: ${reason}` : "Failed to add product", "error")}
       />
 
       <EditProductModal
@@ -765,7 +765,7 @@ function ProductsPage() {
           fetchProducts();
           showSnackbar("Product updated successfully");
         }}
-        onError={() => showSnackbar("Failed to update product", "error")}
+        onError={(reason) => showSnackbar(reason ? `Could not update product: ${reason}` : "Failed to update product", "error")}
       />
 
       <CategoryManagerModal

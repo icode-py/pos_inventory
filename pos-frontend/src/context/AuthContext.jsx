@@ -7,11 +7,17 @@ const API_URL = import.meta.env.VITE_API_URL || '/api';
 export const AuthContext = createContext();
 
 const AuthProvider = ({ children }) => {
-  const [authTokens, setAuthTokens] = useState(() =>
-    localStorage.getItem("authTokens")
-      ? JSON.parse(localStorage.getItem("authTokens"))
-      : null
-  );
+  const [authTokens, setAuthTokens] = useState(() => {
+    try {
+      const tokens = JSON.parse(localStorage.getItem("authTokens"));
+      // Once the refresh token has expired the server will refuse every request, so start at the login page
+      if (tokens && jwtDecode(tokens.refresh).exp * 1000 > Date.now()) return tokens;
+    } catch {
+      // unreadable tokens: treat as logged out
+    }
+    localStorage.removeItem("authTokens");
+    return null;
+  });
   const [user, setUser] = useState(() =>
     authTokens ? jwtDecode(authTokens.access) : null
   );

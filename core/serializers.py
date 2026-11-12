@@ -122,6 +122,19 @@ class BulkDiscountSerializer(serializers.ModelSerializer):
         return data
 
 
+def bulk_pricing_error(price, bulk_quantity, bulk_price):
+    """Why a bulk pack setup is invalid, or None. Price is for one item, bulk_price for the whole pack."""
+    if bulk_quantity is None or bulk_quantity <= 1:
+        return {'bulk_quantity': 'A bulk pack must hold more than 1 item'}
+    if bulk_price is None or bulk_price <= 0:
+        return {'bulk_price': 'Enter the price for the whole pack'}
+    loose_total = price * bulk_quantity
+    if bulk_price > loose_total:
+        return {'bulk_price': f'The pack price cannot be more than buying {bulk_quantity} single items '
+                              f'(₦{loose_total:,.2f})'}
+    return None
+
+
 class ProductSerializer(UniqueInStoreMixin, serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     category_id = StoreScopedPrimaryKeyRelatedField(
@@ -178,28 +191,20 @@ class ProductSerializer(UniqueInStoreMixin, serializers.ModelSerializer):
                     'cost_price': 'Cost price cannot be higher than selling price'
                 })
         
-        # Validate bulk pricing
-        if data.get('is_bulk_product', False):
-            bulk_quantity = data.get('bulk_quantity', 1)
-            bulk_price = data.get('bulk_price')
-            
-            if bulk_quantity <= 1:
-                raise serializers.ValidationError({
-                    'bulk_quantity': 'Bulk quantity must be greater than 1 for bulk products'
-                })
-            
-            if bulk_price is None or bulk_price <= 0:
-                raise serializers.ValidationError({
-                    'bulk_price': 'Bulk price must be positive for bulk products'
-                })
-            
-            # Ensure bulk price is better than individual pricing
-            unit_price = data.get('price', 0)
-            if bulk_price >= (unit_price * bulk_quantity):
-                raise serializers.ValidationError({
-                    'bulk_price': f'Bulk price should be less than {bulk_quantity} × individual price (₦{unit_price * bulk_quantity})'
-                })
-        
+        # On an edit, fields left out keep their saved values
+        def current(field, default=None):
+            if field in data:
+                return data[field]
+            return getattr(self.instance, field, default) if self.instance else default
+
+        if current('is_bulk_product', False):
+            error = bulk_pricing_error(current('price', 0), current('bulk_quantity', 1), current('bulk_price'))
+            if error:
+                raise serializers.ValidationError(error)
+        else:
+            data['bulk_quantity'] = 1
+            data['bulk_price'] = None
+
         return data
 
 

@@ -407,6 +407,66 @@ class BulkUploadTests(TenantTestCase):
         self.assertEqual(Category.objects.get(name='Fresh').store, self.a['store'])
         self.assertEqual(Category.objects.filter(name='Drinks').count(), 2)
 
+    def test_upload_checks_bulk_pricing(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(['name', 'category_name', 'price', 'cost_price', 'stock', 'barcode',
+                   'is_bulk_product', 'bulk_quantity', 'bulk_price'])
+        ws.append(['No pack price', 'Drinks', 375, 300, 150, '444', 'yes', 48, None])
+        buffer = BytesIO()
+        wb.save(buffer)
+        file = SimpleUploadedFile('p.xlsx', buffer.getvalue())
+        response = self.client.post('/api/products/bulk-upload/', {'file': file}, format='multipart')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Product.objects.filter(barcode='444').exists())
+
+
+class BulkProductTests(TenantTestCase):
+    """Price, cost and stock are per single item; bulk_price is for the whole pack."""
+
+    def payload(self, **extra):
+        return {'name': 'Indomie', 'category_id': self.a['category'].pk, 'price': '375', 'cost_price': '300',
+                'stock': 150, 'barcode': '555', 'is_bulk_product': True, 'bulk_quantity': 48,
+                'bulk_price': '18000', 'unit_of_measure': 'units', **extra}
+
+    def test_pack_priced_same_as_single_items_is_allowed(self):
+        response = self.client.post('/api/products/', self.payload(), format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_cheaper_pack_is_allowed(self):
+        response = self.client.post('/api/products/', self.payload(bulk_price='17000'), format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_pack_dearer_than_single_items_is_refused(self):
+        response = self.client.post('/api/products/', self.payload(bulk_price='18001'), format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('bulk_price', response.data)
+
+    def test_bulk_needs_pack_size_and_price(self):
+        self.assertIn('bulk_quantity', self.client.post(
+            '/api/products/', self.payload(bulk_quantity=1), format='json').data)
+        self.assertIn('bulk_price', self.client.post(
+            '/api/products/', self.payload(bulk_price=None), format='json').data)
+
+    def test_plain_product_with_empty_bulk_fields(self):
+        response = self.client.post('/api/products/', self.payload(
+            is_bulk_product=False, bulk_quantity=1, bulk_price=None), format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_edit_checks_against_saved_pack(self):
+        product = self.client.post('/api/products/', self.payload(), format='json').data
+        # Dropping the single price would make the saved pack dearer than 48 singles
+        response = self.client.patch(f"/api/products/{product['id']}/", {'price': '200', 'cost_price': '150'}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('bulk_price', response.data)
+
+    def test_turning_bulk_off_clears_pack(self):
+        product = self.client.post('/api/products/', self.payload(), format='json').data
+        response = self.client.patch(f"/api/products/{product['id']}/", {'is_bulk_product': False}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        saved = Product.objects.get(pk=product['id'])
+        self.assertEqual((saved.bulk_quantity, saved.bulk_price), (1, None))
+
 
 class PlanTierTests(TenantTestCase):
 
