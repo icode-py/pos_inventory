@@ -34,7 +34,7 @@ from .serializers import (
     StoreSettingsSerializer,
 )
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .serializers import CustomTokenObtainPairSerializer
+from .serializers import CustomTokenObtainPairSerializer, bulk_pricing_error
 from django.db.models.functions import TruncDate
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -771,6 +771,10 @@ def bulk_upload_products(request):
                 continue
             if not barcode:
                 errors.append({'row': row_num, 'name': name, 'error': 'Barcode is required'})
+                continue
+            bulk_error = is_bulk and bulk_pricing_error(price, bulk_quantity, bulk_price)
+            if bulk_error:
+                errors.append({'row': row_num, 'name': name, 'error': next(iter(bulk_error.values()))})
                 continue
 
             validated.append({
