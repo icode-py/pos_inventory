@@ -46,6 +46,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # Add custom claims
         token['username'] = user.username
         token['store_id'] = user.store_id
+        token['is_platform'] = user.is_superuser
         token['role'] = (
             "admin" if user.is_admin else
             "manager" if user.is_manager else

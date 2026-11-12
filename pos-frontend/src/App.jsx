@@ -18,6 +18,8 @@ import CustomerProfile from './pages/CustomerProfile';
 import BulkDiscountManager from './components/BulkDiscountManager';
 import AuditLogPage from './pages/AuditLogPage';
 import RefusedSalesPage from './pages/RefusedSalesPage';
+import PlatformPage from './pages/PlatformPage';
+import PlatformRoute from './components/PlatformRoute';
 import SettingsPage from './pages/SettingsPage';
 import StaffPage from './pages/StaffPage';
 import PlanGuard from './components/PlanGuard';
@@ -139,6 +141,16 @@ function App() {
                     </PlanGuard>
                   </Layout>
                 </RoleProtectedRoute>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/platform" element={
+              <ProtectedRoute>
+                <PlatformRoute>
+                  <Layout>
+                    <PlatformPage />
+                  </Layout>
+                </PlatformRoute>
               </ProtectedRoute>
             } />
 

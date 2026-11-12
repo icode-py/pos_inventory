@@ -1,5 +1,6 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
+from .platform_admin import PlatformStoreViewSet
 from .views import (
     SaleTransactionViewSet, StaffViewSet, RefusedSaleViewSet,
     restock_product, sales_report, RestockHistoryViewSet,
@@ -18,6 +19,7 @@ router.register(r'products', AuditedProductViewSet)
 router.register(r'sales', SaleTransactionViewSet)
 router.register(r'refused-sales', RefusedSaleViewSet, basename='refused-sales')
 router.register(r'staff', StaffViewSet)
+router.register(r'platform/stores', PlatformStoreViewSet, basename='platform-stores')
 router.register(r'restock-history', RestockHistoryViewSet, basename='restock-history')
 router.register(r'customers', CustomerViewSet, basename='customers')
 router.register(r'customer-transactions', CustomerTransactionViewSet, basename='customer-transactions')
