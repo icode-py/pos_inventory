@@ -188,6 +188,16 @@ class WriteIsolationTests(TenantTestCase):
         sale = SaleTransaction.objects.get(pk=response.data['id'])
         self.assertEqual(sale.store, self.a['store'])
 
+    def test_packs_plus_singles_average_price_is_rounded_not_refused(self):
+        # 2 packs of 20 at 900 + 1 sachet at 50 = 1850 for 41, average 45.1219...
+        Product.objects.filter(pk=self.a['product'].pk).update(stock=100)
+        self.client.force_authenticate(self.a['cashier'])
+        payload = {'total_amount': 1850, 'paid_amount': 2000, 'change_given': 150,
+                   'items': [{'product_id': self.a['product'].pk, 'quantity': 41, 'price_at_sale': 1850 / 41}]}
+        response = self.client.post('/api/sales/', payload, format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(str(SaleItem.objects.get(transaction_id=response.data['id']).price_at_sale), '45.12')
+
     def test_resent_sale_is_recorded_once(self):
         payload = self.sale_payload(self.a['product'], client_ref='till-1')
         first = self.client.post('/api/sales/', payload, format='json')
