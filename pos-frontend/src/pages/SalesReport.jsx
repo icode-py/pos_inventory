@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axiosInstance from "../utils/axiosInstance";
 import {
-  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, IconButton, LinearProgress,
+  Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, IconButton, LinearProgress,
   MenuItem, Paper, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs,
   TextField, Tooltip, Typography, useTheme,
 } from "@mui/material";
@@ -16,6 +16,13 @@ import { Bar, Line } from "react-chartjs-2";
 import {
   Download as DownloadIcon, Refresh as RefreshIcon, Lock as LockIcon,
   ArrowUpward, ArrowDownward,
+  TrendingUp as TrendingUpIcon, ShowChart as ShowChartIcon, EmojiEvents as TrophyIcon,
+  AccountBalanceWallet as WalletIcon, Category as CategoryIcon, Groups as GroupsIcon,
+  Schedule as ScheduleIcon, Payments as CashIcon, AccountBalance as BankIcon, CreditCard as CardIcon,
+  HelpOutline as UnknownIcon, Inventory2 as InventoryIcon, LocalOffer as TagIcon,
+  RemoveShoppingCart as OutOfStockIcon, WarningAmber as WarningIcon, ShoppingCart as CartIcon,
+  HourglassEmpty as HourglassIcon, ReceiptLong as ReceiptIcon, PointOfSale as PointOfSaleIcon,
+  ShoppingBasket as BasketIcon, Savings as SavingsIcon,
 } from "@mui/icons-material";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Filler, ChartTooltip, Legend);
@@ -67,43 +74,75 @@ function rangeText(start, end) {
 }
 
 // ── Small pieces ─────────────────────────────────────────────────────────────
-function Change({ pct, previous, invert = false }) {
-  if (pct === null || pct === undefined) {
-    return <Typography variant="caption" color="text.secondary">{previous ? "—" : "No sales before"}</Typography>;
-  }
-  const up = pct >= 0;
-  const good = invert ? !up : up;
-  const Icon = up ? ArrowUpward : ArrowDownward;
+const BRAND_GRADIENT = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+const MEDALS = ["#F5B700", "#A0AEC0", "#CD7F32"];
+
+function IconBadge({ icon: Icon, color, size = 40 }) {
   return (
-    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", color: pct === 0 ? "text.secondary" : good ? "success.main" : "error.main" }}>
-      <Icon sx={{ fontSize: 14 }} />
-      <Typography variant="caption" fontWeight={700}>{Math.abs(pct).toFixed(1)}%</Typography>
+    <Box sx={{
+      width: size, height: size, borderRadius: size > 34 ? 3 : 2, flexShrink: 0,
+      display: "grid", placeItems: "center", bgcolor: alpha(color, 0.14), color,
+    }}>
+      <Icon sx={{ fontSize: Math.round(size * 0.55) }} />
     </Box>
   );
 }
 
-function Kpi({ label, value, pct, previousValue, previousText, note, locked }) {
+function Change({ pct, previous, onBrand = false }) {
+  const theme = useTheme();
+  if (pct === null || pct === undefined) {
+    return (
+      <Typography variant="caption" sx={{ color: onBrand ? "rgba(255,255,255,0.85)" : "text.secondary", fontWeight: 600 }}>
+        {previous ? "—" : "New"}
+      </Typography>
+    );
+  }
+  const flat = pct === 0;
+  const color = flat ? theme.palette.text.secondary : pct > 0 ? theme.palette.success.main : theme.palette.error.main;
+  const Icon = pct >= 0 ? ArrowUpward : ArrowDownward;
   return (
-    <Card sx={{ height: "100%" }}>
+    <Box component="span" sx={{
+      display: "inline-flex", alignItems: "center", gap: 0.25, px: 0.75, py: 0.15, borderRadius: 999,
+      bgcolor: onBrand ? "rgba(255,255,255,0.22)" : alpha(color, 0.12),
+      color: onBrand ? "#fff" : color,
+    }}>
+      <Icon sx={{ fontSize: 13 }} />
+      <Typography variant="caption" fontWeight={700} sx={{ lineHeight: 1.6 }}>{Math.abs(pct).toFixed(1)}%</Typography>
+    </Box>
+  );
+}
+
+function Kpi({ label, value, icon, color, pct, previousValue, previousText, note, locked }) {
+  return (
+    <Card sx={{
+      height: "100%", position: "relative", overflow: "hidden",
+      backgroundImage: `linear-gradient(135deg, ${alpha(color, 0.10)} 0%, transparent 60%)`,
+    }}>
       <CardContent sx={{ p: { xs: 1.5, sm: 2 }, "&:last-child": { pb: { xs: 1.5, sm: 2 } } }}>
-        <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 }}>
-          {label}
-        </Typography>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 700, pt: 0.5 }}>
+            {label}
+          </Typography>
+          <IconBadge icon={icon} color={color} size={34} />
+        </Box>
         {locked ? (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5 }}>
-            <LockIcon fontSize="small" color="disabled" />
-            <Typography variant="body2" color="text.secondary">Business plan</Typography>
+          <Box sx={{ mt: 0.5 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <LockIcon sx={{ fontSize: 18 }} color="disabled" />
+              <Typography variant="body2" fontWeight={700} color="text.secondary">Business plan</Typography>
+            </Box>
+            <Typography variant="caption" color="text.secondary">See profit on every sale</Typography>
           </Box>
         ) : (
           <>
-            <Typography sx={{ fontWeight: 700, fontSize: { xs: "1.25rem", sm: "1.6rem" }, lineHeight: 1.3, mt: 0.25, overflowWrap: "anywhere" }}>
+            <Typography sx={{ fontWeight: 800, fontSize: { xs: "1.2rem", sm: "1.5rem" }, lineHeight: 1.25, mt: 0.5, overflowWrap: "anywhere", letterSpacing: "-0.3px" }}>
               {value}
             </Typography>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
               <Change pct={pct} previous={previousValue} />
               {previousText && <Typography variant="caption" color="text.secondary">vs {previousText}</Typography>}
             </Box>
-            {note && <Typography variant="caption" color="text.secondary" display="block">{note}</Typography>}
+            {note && <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25 }}>{note}</Typography>}
           </>
         )}
       </CardContent>
@@ -111,12 +150,51 @@ function Kpi({ label, value, pct, previousValue, previousText, note, locked }) {
   );
 }
 
-function Section({ title, action, children }) {
+// The headline card: total sales on the brand gradient, with a small trend line
+function HeroKpi({ label, value, pct, previousValue, previousText, subtitle, spark }) {
+  return (
+    <Card sx={{ height: "100%", background: BRAND_GRADIENT, color: "#fff", position: "relative", overflow: "hidden" }}>
+      <Box sx={{ position: "absolute", width: 160, height: 160, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.08)", top: -60, right: -40 }} />
+      <CardContent sx={{ p: { xs: 2, sm: 2.5 }, "&:last-child": { pb: { xs: 2, sm: 2.5 } }, position: "relative" }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" sx={{ textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, opacity: 0.9 }}>{label}</Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: { xs: "1.9rem", sm: "2.2rem" }, lineHeight: 1.15, letterSpacing: "-0.5px", overflowWrap: "anywhere" }}>
+              {value}
+            </Typography>
+          </Box>
+          <Box sx={{ width: 42, height: 42, borderRadius: 3, display: "grid", placeItems: "center", bgcolor: "rgba(255,255,255,0.2)", flexShrink: 0 }}>
+            <PointOfSaleIcon />
+          </Box>
+        </Box>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", mt: 0.75 }}>
+          <Change pct={pct} previous={previousValue} onBrand />
+          {previousText && <Typography variant="caption" sx={{ opacity: 0.9 }}>vs {previousText}</Typography>}
+        </Box>
+        {subtitle && <Typography variant="caption" display="block" sx={{ opacity: 0.85, mt: 0.25 }}>{subtitle}</Typography>}
+        {spark?.length > 1 && (
+          <Box sx={{ height: 44, mt: 1, mx: -0.5 }}>
+            <Line
+              data={{ labels: spark.map((_, i) => i), datasets: [{ data: spark, borderColor: "rgba(255,255,255,0.95)", backgroundColor: "rgba(255,255,255,0.18)", fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2 }] }}
+              options={{ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false, beginAtZero: true } } }}
+            />
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Section({ title, icon, color, action, children }) {
+  const theme = useTheme();
   return (
     <Card sx={{ height: "100%" }}>
       <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5, gap: 1 }}>
-          <Typography variant="subtitle1" fontWeight={700}>{title}</Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+            {icon && <IconBadge icon={icon} color={color || theme.palette.primary.main} size={32} />}
+            <Typography variant="subtitle1" fontWeight={700} noWrap>{title}</Typography>
+          </Box>
           {action}
         </Box>
         {children}
@@ -125,18 +203,51 @@ function Section({ title, action, children }) {
   );
 }
 
-function ShareBar({ label, sub, value, share, color }) {
+function ShareBar({ label, sub, value, share, color, rank }) {
+  const theme = useTheme();
   return (
-    <Box sx={{ mb: 1.5 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
-        <Typography variant="body2" fontWeight={600} noWrap sx={{ minWidth: 0 }}>{label}</Typography>
-        <Typography variant="body2" fontWeight={700} sx={{ flexShrink: 0 }}>{value}</Typography>
+    <Box sx={{ mb: 1.75, display: "flex", gap: 1.25, alignItems: "flex-start" }}>
+      {rank !== undefined && (
+        <Box sx={{
+          width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "grid", placeItems: "center", mt: 0.1,
+          fontSize: 12, fontWeight: 800,
+          bgcolor: rank < 3 ? alpha(MEDALS[rank], 0.2) : alpha(theme.palette.text.primary, 0.06),
+          color: rank < 3 ? (rank === 1 ? theme.palette.text.secondary : MEDALS[rank]) : "text.secondary",
+          border: rank < 3 ? `1.5px solid ${MEDALS[rank]}` : "none",
+        }}>
+          {rank + 1}
+        </Box>
+      )}
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
+          <Typography variant="body2" fontWeight={600} noWrap sx={{ minWidth: 0 }}>{label}</Typography>
+          <Typography variant="body2" fontWeight={700} sx={{ flexShrink: 0 }}>{value}</Typography>
+        </Box>
+        <LinearProgress variant="determinate" value={Math.min(share, 100)}
+          sx={{ height: 7, borderRadius: 4, my: 0.6, bgcolor: alpha(color, 0.12), "& .MuiLinearProgress-bar": { borderRadius: 4, background: `linear-gradient(90deg, ${alpha(color, 0.75)}, ${color})` } }} />
+        <Typography variant="caption" color="text.secondary">{sub}</Typography>
       </Box>
-      <LinearProgress variant="determinate" value={Math.min(share, 100)} sx={{ height: 6, borderRadius: 3, my: 0.5, "& .MuiLinearProgress-bar": { bgcolor: color } }} />
-      <Typography variant="caption" color="text.secondary">{sub}</Typography>
     </Box>
   );
 }
+
+function StatTile({ label, value, note, icon, color }) {
+  return (
+    <Paper variant="outlined" sx={{
+      p: 1.5, height: "100%", borderRadius: 3, borderColor: alpha(color, 0.3),
+      backgroundImage: `linear-gradient(135deg, ${alpha(color, 0.08)} 0%, transparent 70%)`,
+    }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
+        <IconBadge icon={icon} color={color} size={30} />
+        <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</Typography>
+      </Box>
+      <Typography fontWeight={800} sx={{ fontSize: { xs: "1.1rem", sm: "1.3rem" }, overflowWrap: "anywhere" }}>{value}</Typography>
+      {note}
+    </Paper>
+  );
+}
+
+const initials = (name) => String(name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 
 const Empty = ({ children }) => (
   <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>{children}</Typography>
@@ -182,7 +293,7 @@ function StockPanel() {
   };
 
   const Row = ({ title, sub, right, rightSub, rightColor }) => (
-    <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, py: 1, borderBottom: 1, borderColor: "divider", "&:last-child": { borderBottom: 0 } }}>
+    <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, py: 1, pl: 1.25, mb: 0.75, borderRadius: 2, borderLeft: 4, borderLeftColor: rightColor || "divider", bgcolor: (th) => alpha(th.palette.text.primary, 0.025) }}>
       <Box sx={{ minWidth: 0 }}>
         <Typography variant="body2" fontWeight={600} noWrap>{title}</Typography>
         <Typography variant="caption" color="text.secondary">{sub}</Typography>
@@ -207,19 +318,14 @@ function StockPanel() {
 
       <Grid container spacing={1.5} sx={{ mb: 2 }}>
         {[
-          ["Stock value (cost)", naira(t.value_cost), `${count(t.units)} items · ${count(t.products)} products`],
-          ["Stock value (selling)", naira(t.value_retail), stock.can_view_profit ? `${naira(t.potential_profit)} profit if all sold` : "At today's prices"],
-          ["Out of stock", count(t.out_of_stock), stock.missed_per_day_total > 0 ? `About ${naira(stock.missed_per_day_total)} in sales missed a day` : "products"],
-          ["Low stock", count(t.low_stock), `${cfg.low_stock_threshold} or fewer left`],
-        ].map(([label, value, note]) => (
+          ["Stock value (cost)", naira(t.value_cost), `${count(t.units)} items · ${count(t.products)} products`, InventoryIcon, theme.palette.primary.main],
+          ["Selling value", naira(t.value_retail), stock.can_view_profit ? `${naira(t.potential_profit)} profit if all sold` : "At today's prices", TagIcon, theme.palette.success.main],
+          ["Out of stock", count(t.out_of_stock), stock.missed_per_day_total > 0 ? `About ${naira(stock.missed_per_day_total)} in sales missed a day` : "products", OutOfStockIcon, theme.palette.error.main],
+          ["Low stock", count(t.low_stock), `${cfg.low_stock_threshold} or fewer left`, WarningIcon, theme.palette.warning.main],
+        ].map(([label, value, note, icon, color]) => (
           <Grid key={label} size={{ xs: 6, md: 3 }}>
-            <Card sx={{ height: "100%" }}>
-              <CardContent sx={{ p: { xs: 1.5, sm: 2 }, "&:last-child": { pb: { xs: 1.5, sm: 2 } } }}>
-                <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 }}>{label}</Typography>
-                <Typography sx={{ fontWeight: 700, fontSize: { xs: "1.15rem", sm: "1.5rem" }, overflowWrap: "anywhere" }}>{value}</Typography>
-                <Typography variant="caption" color="text.secondary">{note}</Typography>
-              </CardContent>
-            </Card>
+            <StatTile label={label} value={value} icon={icon} color={color}
+              note={<Typography variant="caption" color="text.secondary" display="block">{note}</Typography>} />
           </Grid>
         ))}
       </Grid>
@@ -228,6 +334,8 @@ function StockPanel() {
         <Grid size={{ xs: 12, md: 6 }}>
           <Section
             title={`Restock soon (${restockCount})`}
+            icon={CartIcon}
+            color={theme.palette.warning.main}
             action={restockCount > 0 && <Button size="small" startIcon={<DownloadIcon />} onClick={exportRestock}>List</Button>}
           >
             {restockCount === 0 ? (
@@ -253,7 +361,7 @@ function StockPanel() {
         </Grid>
 
         <Grid size={{ xs: 12, md: 6 }}>
-          <Section title={`Not selling (${stock.slow_count})`}>
+          <Section title={`Not selling (${stock.slow_count})`} icon={HourglassIcon} color={theme.palette.info.main}>
             {stock.slow_count === 0 ? (
               <Empty>Every product in stock sold at least once in the last {cfg.window_days} days.</Empty>
             ) : (
@@ -264,7 +372,7 @@ function StockPanel() {
                 {stock.slow_movers.map((x) => (
                   <Row key={x.id} title={x.name}
                     sub={`${units(x.stock, x.unit)} · ${x.days_since_sale != null ? `last sold ${x.days_since_sale} days ago` : "never sold"}`}
-                    right={naira(x.value_cost)} rightSub="at cost" />
+                    right={naira(x.value_cost)} rightSub="at cost" rightColor="info.main" />
                 ))}
               </>
             )}
@@ -272,7 +380,7 @@ function StockPanel() {
         </Grid>
 
         <Grid size={{ xs: 12 }}>
-          <Section title="Stock value by category">
+          <Section title="Stock value by category" icon={CategoryIcon} color={theme.palette.secondary.main}>
             {stock.categories.map((x) => (
               <ShareBar key={x.name} label={x.name} value={naira(x.value_cost)} color={theme.palette.secondary.main}
                 share={t.value_cost ? (x.value_cost / t.value_cost) * 100 : 0}
@@ -456,7 +564,12 @@ const SalesReport = () => {
       {/* Header */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1, mb: 1.5 }}>
         <Box sx={{ minWidth: 0 }}>
-          <Typography variant="h5" fontWeight={700} sx={{ fontSize: { xs: "1.3rem", md: "1.6rem" } }}>Reports</Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: 2.5, display: "grid", placeItems: "center", background: BRAND_GRADIENT, color: "#fff" }}>
+              <ShowChartIcon fontSize="small" />
+            </Box>
+            <Typography variant="h5" fontWeight={800} sx={{ fontSize: { xs: "1.3rem", md: "1.6rem" } }}>Reports</Typography>
+          </Box>
           <Typography variant="body2" color="text.secondary">
             {rangeText(range[0], range[1])}
           </Typography>
@@ -509,25 +622,34 @@ const SalesReport = () => {
         <Box sx={{ opacity: loading ? 0.6 : 1, transition: "opacity .2s" }}>
           {/* Headline numbers */}
           <Grid container spacing={1.5} sx={{ mb: 2 }}>
-            <Grid size={{ xs: 6, md: canProfit ? 2.4 : 3 }}>
-              <Kpi label="Sales" value={naira(s.revenue)} pct={c.revenue} previousValue={p.revenue} previousText={previousText} />
+            <Grid size={{ xs: 12, md: 4 }}>
+              <HeroKpi label="Total sales" value={naira(s.revenue)} pct={c.revenue} previousValue={p.revenue} previousText={previousText}
+                subtitle={`${count(s.transactions)} transactions · ${count(s.items)} items`}
+                spark={singleDay ? activeHours.map((h) => h.revenue) : data.daily.map((d) => d.revenue)} />
             </Grid>
-            <Grid size={{ xs: 6, md: canProfit ? 2.4 : 3 }}>
-              {canProfit ? (
-                <Kpi label="Profit" value={naira(s.profit)} pct={c.profit} previousValue={p.profit} previousText={previousText}
-                  note={`${s.margin_pct}% margin`} />
-              ) : (
-                <Kpi label="Profit" locked />
-              )}
-            </Grid>
-            <Grid size={{ xs: 6, md: canProfit ? 2.4 : 2 }}>
-              <Kpi label="Transactions" value={count(s.transactions)} pct={c.transactions} previousValue={p.transactions} previousText={previousText} />
-            </Grid>
-            <Grid size={{ xs: 6, md: canProfit ? 2.4 : 2 }}>
-              <Kpi label="Avg. sale" value={naira(s.average_sale)} pct={c.average_sale} previousValue={p.average_sale} previousText={previousText} />
-            </Grid>
-            <Grid size={{ xs: 12, md: canProfit ? 2.4 : 2 }}>
-              <Kpi label="Items sold" value={count(s.items)} pct={c.items} previousValue={p.items} previousText={previousText} />
+            <Grid size={{ xs: 12, md: 8 }}>
+              <Grid container spacing={1.5} sx={{ height: "100%" }}>
+                <Grid size={{ xs: 6 }}>
+                  {canProfit ? (
+                    <Kpi label="Profit" icon={SavingsIcon} color={theme.palette.success.main} value={naira(s.profit)} pct={c.profit}
+                      previousValue={p.profit} previousText={previousText} note={`${s.margin_pct}% margin`} />
+                  ) : (
+                    <Kpi label="Profit" icon={SavingsIcon} color={theme.palette.success.main} locked />
+                  )}
+                </Grid>
+                <Grid size={{ xs: 6 }}>
+                  <Kpi label="Transactions" icon={ReceiptIcon} color={theme.palette.info.main} value={count(s.transactions)} pct={c.transactions}
+                    previousValue={p.transactions} previousText={previousText} />
+                </Grid>
+                <Grid size={{ xs: 6 }}>
+                  <Kpi label="Avg. sale" icon={CartIcon} color={theme.palette.secondary.main} value={naira(s.average_sale)} pct={c.average_sale}
+                    previousValue={p.average_sale} previousText={previousText} />
+                </Grid>
+                <Grid size={{ xs: 6 }}>
+                  <Kpi label="Items sold" icon={BasketIcon} color={theme.palette.warning.main} value={count(s.items)} pct={c.items}
+                    previousValue={p.items} previousText={previousText} />
+                </Grid>
+              </Grid>
             </Grid>
           </Grid>
 
@@ -551,7 +673,7 @@ const SalesReport = () => {
               {current === "Overview" && (
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12, md: 8 }}>
-                    <Section title={singleDay ? "Sales by hour" : "Sales trend"}>
+                    <Section title={singleDay ? "Sales by hour" : "Sales trend"} icon={ShowChartIcon}>
                       <Box sx={{ height: { xs: 220, md: 300 } }}>{trendChart}</Box>
                       <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mt: 1.5 }}>
                         {busiest?.revenue > 0 && (
@@ -568,32 +690,34 @@ const SalesReport = () => {
                     </Section>
                   </Grid>
                   <Grid size={{ xs: 12, md: 4 }}>
-                    <Section title="Top products" action={<Button size="small" onClick={() => setTab(1)}>See all</Button>}>
+                    <Section title="Top products" icon={TrophyIcon} color={MEDALS[0]} action={<Button size="small" onClick={() => setTab(1)}>See all</Button>}>
                       {data.products.slice(0, 5).map((x, i) => (
-                        <ShareBar key={x.id} label={`${i + 1}. ${x.name}`} value={naira(x.revenue)} share={share(x.revenue)} color={colors.revenue}
+                        <ShareBar key={x.id} rank={i} label={x.name} value={naira(x.revenue)} share={share(x.revenue)} color={colors.revenue}
                           sub={`${count(x.quantity)} sold · ${share(x.revenue).toFixed(0)}% of sales${canProfit ? ` · ${naira(x.profit)} profit` : ""}`} />
                       ))}
                     </Section>
                   </Grid>
                   {data.payments && (
                     <Grid size={{ xs: 12 }}>
-                      <Section title="How customers paid">
+                      <Section title="How customers paid" icon={WalletIcon} color={theme.palette.success.main}>
                         <Grid container spacing={1.5}>
                           {[
-                            ["Cash", data.payments.cash, data.payments.counts.cash, "In the drawer, after change"],
-                            ["Transfer", data.payments.transfer, data.payments.counts.transfer, "Check against bank alerts"],
-                            ["POS card", data.payments.card, data.payments.counts.card, "Check against POS settlement"],
-                            ...(data.payments.unrecorded > 0 ? [["Not recorded", data.payments.unrecorded, data.payments.counts.unrecorded, "Sales before payment methods"]] : []),
-                          ].map(([label, amount, n, hint]) => (
+                            ["Cash", data.payments.cash, data.payments.counts.cash, "In the drawer, after change", CashIcon, theme.palette.success.main],
+                            ["Transfer", data.payments.transfer, data.payments.counts.transfer, "Check against bank alerts", BankIcon, theme.palette.primary.main],
+                            ["POS card", data.payments.card, data.payments.counts.card, "Check against POS settlement", CardIcon, theme.palette.secondary.main],
+                            ...(data.payments.unrecorded > 0 ? [["Not recorded", data.payments.unrecorded, data.payments.counts.unrecorded, "Sales before payment methods", UnknownIcon, theme.palette.grey[500]]] : []),
+                          ].map(([label, amount, n, hint, icon, color]) => (
                             <Grid key={label} size={{ xs: 6, md: 3 }}>
-                              <Paper variant="outlined" sx={{ p: 1.5, height: "100%" }}>
-                                <Typography variant="caption" color="text.secondary" fontWeight={600}>{label}</Typography>
-                                <Typography fontWeight={700} sx={{ fontSize: { xs: "1.05rem", sm: "1.25rem" } }}>{naira(amount)}</Typography>
-                                <Typography variant="caption" color="text.secondary" display="block">
-                                  {share(amount).toFixed(0)}% · {count(n)} {label === "Not recorded" ? "sales" : "paid this way"}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" display="block" sx={{ opacity: 0.8 }}>{hint}</Typography>
-                              </Paper>
+                              <StatTile label={label} value={naira(amount)} icon={icon} color={color} note={
+                                <>
+                                  <LinearProgress variant="determinate" value={Math.min(share(amount), 100)}
+                                    sx={{ height: 5, borderRadius: 3, my: 0.75, bgcolor: alpha(color, 0.12), "& .MuiLinearProgress-bar": { bgcolor: color, borderRadius: 3 } }} />
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    {share(amount).toFixed(0)}% · {count(n)} {label === "Not recorded" ? "sales" : "paid this way"}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" display="block" sx={{ opacity: 0.8 }}>{hint}</Typography>
+                                </>
+                              } />
                             </Grid>
                           ))}
                         </Grid>
@@ -606,7 +730,7 @@ const SalesReport = () => {
                     </Grid>
                   )}
                   <Grid size={{ xs: 12, md: 6 }}>
-                    <Section title="Sales by category">
+                    <Section title="Sales by category" icon={CategoryIcon} color={theme.palette.secondary.main}>
                       {data.categories.slice(0, 6).map((x) => (
                         <ShareBar key={x.name} label={x.name} value={naira(x.revenue)} share={share(x.revenue)} color={theme.palette.secondary.main}
                           sub={`${share(x.revenue).toFixed(0)}% · ${count(x.transactions)} transactions`} />
@@ -614,7 +738,7 @@ const SalesReport = () => {
                     </Section>
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
-                    <Section title="Staff" action={<Button size="small" onClick={() => setTab(2)}>Details</Button>}>
+                    <Section title="Staff" icon={GroupsIcon} color={theme.palette.info.main} action={<Button size="small" onClick={() => setTab(2)}>Details</Button>}>
                       {data.cashiers.map((x) => (
                         <ShareBar key={x.id} label={x.name} value={naira(x.revenue)} share={share(x.revenue)} color={colors.profit}
                           sub={`${count(x.transactions)} transactions · avg ${naira(x.average_sale)}`} />
@@ -623,7 +747,7 @@ const SalesReport = () => {
                   </Grid>
                   {!singleDay && (
                     <Grid size={{ xs: 12 }}>
-                      <Section title="Busy hours">
+                      <Section title="Busy hours" icon={ScheduleIcon} color={theme.palette.warning.main}>
                         <Box sx={{ height: 200 }}>
                           <Bar
                             data={{ labels: activeHours.map((h) => hourLabel(h.hour)), datasets: [{ label: "Sales", data: activeHours.map((h) => h.revenue), backgroundColor: alpha(colors.revenue, 0.8), borderRadius: 4 }] }}
@@ -640,7 +764,7 @@ const SalesReport = () => {
               {current === "Products" && (
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12 }}>
-                    <Section title={`Products sold (${data.products.length})`}
+                    <Section title={`Products sold (${data.products.length})`} icon={InventoryIcon}
                       action={<Button size="small" startIcon={<DownloadIcon />} onClick={exportProducts}>CSV</Button>}>
                       <TableContainer sx={{ maxHeight: 520 }}>
                         <Table size="small" stickyHeader>
@@ -678,7 +802,7 @@ const SalesReport = () => {
                     </Section>
                   </Grid>
                   <Grid size={{ xs: 12 }}>
-                    <Section title="Categories">
+                    <Section title="Categories" icon={CategoryIcon} color={theme.palette.secondary.main}>
                       <TableContainer>
                         <Table size="small">
                           <TableHead>
@@ -718,14 +842,22 @@ const SalesReport = () => {
                       <Card sx={{ height: "100%" }}>
                         <CardContent>
                           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
-                              <Chip size="small" label={`#${i + 1}`} color={i === 0 ? "primary" : "default"} />
-                              <Typography fontWeight={700} noWrap>{x.name}</Typography>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
+                              <Avatar sx={{ width: 40, height: 40, fontWeight: 700, fontSize: 15, background: BRAND_GRADIENT }}>{initials(x.name)}</Avatar>
+                              <Box sx={{ minWidth: 0 }}>
+                                <Typography fontWeight={700} noWrap>{x.name}</Typography>
+                                <Typography variant="caption" color={i < 3 ? MEDALS[i] : "text.secondary"} fontWeight={700}>
+                                  {i === 0 ? "Top seller" : `#${i + 1}`}
+                                </Typography>
+                              </Box>
                             </Box>
                             <Typography variant="caption" color="text.secondary">{share(x.revenue).toFixed(0)}% of sales</Typography>
                           </Box>
                           <Typography variant="h6" fontWeight={700}>{naira(x.revenue)}</Typography>
-                          <Typography variant="caption" color="text.secondary">Cash to hand over: <b>{naira(x.cash)}</b></Typography>
+                          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, mt: 0.5, px: 1, py: 0.25, borderRadius: 999, bgcolor: alpha(theme.palette.success.main, 0.12), color: "success.main" }}>
+                            <CashIcon sx={{ fontSize: 15 }} />
+                            <Typography variant="caption" fontWeight={700}>Cash to hand over: {naira(x.cash)}</Typography>
+                          </Box>
                           <LinearProgress variant="determinate" value={share(x.revenue)} sx={{ height: 6, borderRadius: 3, my: 1 }} />
                           <Grid container spacing={1}>
                             {[["Transactions", count(x.transactions)], ["Avg. sale", naira(x.average_sale)], ["Items", count(x.items)],
@@ -745,7 +877,7 @@ const SalesReport = () => {
 
               {/* Sales list */}
               {current === "Sales" && (
-                <Section title={`Transactions (${count(salesPage.count || s.transactions)})`}
+                <Section title={`Transactions (${count(salesPage.count || s.transactions)})`} icon={ReceiptIcon} color={theme.palette.info.main}
                   action={<Button size="small" startIcon={itemsBusy ? <CircularProgress size={14} /> : <DownloadIcon />} onClick={exportItems} disabled={itemsBusy}>Items CSV</Button>}>
                   <TableContainer>
                     <Table size="small">
@@ -796,7 +928,7 @@ const SalesReport = () => {
               {current === "Profit" && (
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12 }}>
-                    <Section title={singleDay ? "Today's sales, cost and profit" : "Sales, cost and profit by day"}>
+                    <Section title={singleDay ? "Today's sales, cost and profit" : "Sales, cost and profit by day"} icon={ShowChartIcon} color={theme.palette.success.main}>
                       <Box sx={{ height: { xs: 240, md: 320 } }}>
                         <Bar
                           data={{
@@ -813,7 +945,7 @@ const SalesReport = () => {
                     </Section>
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
-                    <Section title="Most profitable">
+                    <Section title="Most profitable" icon={TrendingUpIcon} color={theme.palette.success.main}>
                       {[...data.products].sort((a, b) => b.profit - a.profit).slice(0, 6).map((x) => (
                         <ShareBar key={x.id} label={x.name} value={naira(x.profit)} color={colors.profit}
                           share={s.profit > 0 ? (x.profit / s.profit) * 100 : 0}
@@ -822,7 +954,7 @@ const SalesReport = () => {
                     </Section>
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
-                    <Section title="Low margin (under 10%)">
+                    <Section title="Low margin (under 10%)" icon={WarningIcon} color={theme.palette.error.main}>
                       {lowMargin.length === 0 ? (
                         <Empty>Every product sold made at least 10% margin.</Empty>
                       ) : (
