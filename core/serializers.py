@@ -344,7 +344,7 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
             product.save()
 
             # Create SaleItem
-            SaleItem.objects.create(transaction=transaction_instance, **item_data)
+            SaleItem.objects.create(transaction=transaction_instance, cost_at_sale=product.cost_price, **item_data)
 
         # Award loyalty points and update customer stats (atomic to avoid race conditions)
         if customer:

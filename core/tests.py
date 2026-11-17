@@ -647,3 +647,115 @@ class PlatformTests(TenantTestCase):
         self.assertTrue(AccessToken(login.data['access'])['is_platform'])
         login = APIClient().post('/api/token/', {'username': 'alpha_admin', 'password': 'pw12345'}, format='json')
         self.assertFalse(AccessToken(login.data['access'])['is_platform'])
+
+
+class AnalyticsTests(TenantTestCase):
+    URL = '/api/analytics/'
+
+    def setUp(self):
+        super().setUp()
+        store, cashier = self.a['store'], self.a['cashier']
+        self.today = timezone.localdate()
+        self.fanta = self.a['product']
+        self.water = Product.objects.create(store=store, name='Water', category=self.a['category'],
+                                            price=200, cost_price=100, stock=50, barcode='w1')
+        # Today: 2 Fanta sold when they cost 250, plus 1 water
+        self.sale = self.make_sale(cashier, 1200, [(self.fanta, 2, 500, 250), (self.water, 1, 200, 100)])
+        # Eight days ago: falls in the 7 days before a 7-day report
+        self.make_sale(cashier, 1000, [(self.fanta, 2, 500, 250)], days_ago=8)
+
+    def make_sale(self, cashier, total, lines, days_ago=0, at=None):
+        sale = SaleTransaction.objects.create(store=self.a['store'], cashier=cashier, total_amount=total,
+                                              paid_amount=total, change_given=0)
+        for product, qty, price, cost in lines:
+            SaleItem.objects.create(transaction=sale, product=product, quantity=qty, price_at_sale=price,
+                                    cost_at_sale=cost)
+        when = at or timezone.now() - timedelta(days=days_ago)
+        SaleTransaction.objects.filter(pk=sale.pk).update(created_at=when)
+        return sale
+
+    def report(self, days=7, **params):
+        start = self.today - timedelta(days=days - 1)
+        response = self.client.get(self.URL, {'start_date': start, 'end_date': self.today, **params})
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.data
+
+    def test_totals_profit_and_real_comparison(self):
+        data = self.report()
+        # alpha's fixture sale (500, cost 300 from the product) + today's 1200
+        self.assertEqual(data['summary']['revenue'], 1700)
+        self.assertEqual(data['summary']['transactions'], 2)
+        self.assertEqual(data['summary']['items'], 4)
+        self.assertEqual(data['summary']['profit'], 1700 - (300 + 500 + 100))
+        self.assertEqual(data['previous']['revenue'], 1000)
+        self.assertEqual(data['change_pct']['revenue'], 70.0)
+        self.assertEqual(len(data['daily']), 7)
+
+    def test_today_compares_with_yesterday_up_to_the_same_time(self):
+        now = timezone.now()
+        self.make_sale(self.a['cashier'], 400, [(self.water, 2, 200, 100)], at=now - timedelta(days=1, hours=1))
+        self.make_sale(self.a['cashier'], 900, [(self.water, 3, 300, 100)], at=now - timedelta(days=1) + timedelta(minutes=5))
+        data = self.report(days=1)
+        if timezone.localtime(now - timedelta(days=1, hours=1)).date() == self.today - timedelta(days=1) and                 timezone.localtime(now - timedelta(days=1) + timedelta(minutes=5)).date() == self.today - timedelta(days=1):
+            self.assertEqual(data['previous']['revenue'], 400)  # the later sale yesterday isn't counted yet
+        self.assertTrue(data['range']['same_time'])
+
+    def test_past_profit_ignores_later_cost_changes(self):
+        before = self.report()['summary']['profit']
+        Product.objects.filter(pk=self.fanta.pk).update(cost_price=450)
+        # Only the fixture sale has no saved cost, so only it moves (300 -> 450)
+        self.assertEqual(self.report()['summary']['profit'], before - 150)
+
+    def test_product_filter_counts_only_that_product(self):
+        data = self.report(product_id=self.water.pk)
+        self.assertEqual(data['summary']['revenue'], 200)
+        self.assertEqual(data['summary']['transactions'], 1)
+        self.assertEqual([p['name'] for p in data['products']], ['Water'])
+
+    def test_breakdowns(self):
+        data = self.report()
+        top = data['products'][0]
+        self.assertEqual((top['name'], top['quantity'], top['revenue'], top['transactions']),
+                         (self.fanta.name, 3, 1500, 2))
+        self.assertEqual(data['categories'][0]['transactions'], 2)  # sales, not lines
+        self.assertEqual(data['cashiers'][0]['revenue'], 1700)
+        self.assertEqual(sum(h['transactions'] for h in data['hourly']), 2)
+
+    def test_after_midnight_sale_counts_on_the_local_day(self):
+        local_midnight = timezone.make_aware(
+            timezone.datetime.combine(self.today, timezone.datetime.min.time()))
+        self.make_sale(self.a['cashier'], 300, [(self.water, 1, 300, 100)], at=local_midnight + timedelta(minutes=30))
+        data = self.report(days=1)
+        self.assertEqual(data['summary']['transactions'], 3)
+        self.assertEqual(data['hourly'][0]['transactions'], 1)
+
+    def test_lower_plan_gets_no_profit(self):
+        Store.objects.filter(pk=self.a['store'].pk).update(plan_tier='GROWTH')
+        self.client.force_authenticate(Staff.objects.get(pk=self.a['admin'].pk))
+        data = self.report()
+        self.assertFalse(data['can_view_profit'])
+        self.assertNotIn('profit', data['summary'])
+        self.assertNotIn('profit', data['products'][0])
+
+    def test_other_store_never_counted(self):
+        data = self.report(cashier_id=self.b['cashier'].pk)
+        self.assertEqual(data['summary']['revenue'], 0)
+        self.assertEqual(data['products'], [])
+        self.client.force_authenticate(self.b['admin'])
+        self.assertEqual(self.report()['summary']['revenue'], 500)
+
+    def test_cashier_and_bad_input_refused(self):
+        self.assertEqual(self.client.get(self.URL, {'start_date': 'soon'}).status_code, 400)
+        self.assertEqual(self.client.get(self.URL, {'start_date': '2026-02-10', 'end_date': '2026-02-01'}).status_code, 400)
+        self.client.force_authenticate(self.a['cashier'])
+        self.assertEqual(self.client.get(self.URL).status_code, 403)
+
+    def test_sales_list_pages_and_items_csv(self):
+        for _ in range(30):
+            self.make_sale(self.a['cashier'], 200, [(self.water, 1, 200, 100)])
+        start = self.today - timedelta(days=6)
+        page = self.client.get('/api/analytics/sales/', {'start_date': start, 'end_date': self.today, 'page': 2}).data
+        self.assertEqual((page['count'], len(page['results'])), (32, 7))
+        csv_text = self.client.get('/api/analytics/items.csv', {'start_date': start, 'end_date': self.today}).content.decode()
+        self.assertEqual(len(csv_text.strip().splitlines()), 1 + 1 + 2 + 30)
+        self.assertNotIn('bravo', csv_text)

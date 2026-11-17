@@ -298,7 +298,7 @@ def store_today_sales(request):
     """Get TOTAL store sales for today - for dashboard card"""
     store = current_store(request)
     try:
-        today = timezone.now().date()
+        today = timezone.localdate()
         
         # Always get ALL sales for the store today
         sales_today = SaleTransaction.objects.filter(store=store, created_at__date=today)
@@ -324,7 +324,7 @@ def user_today_performance(request):
     """Get INDIVIDUAL user sales for today - for layout sidebar"""
     store = current_store(request)
     try:
-        today = timezone.now().date()
+        today = timezone.localdate()
         
         # Get sales for today filtered by current user (everyone sees their own sales)
         sales_today = SaleTransaction.objects.filter(
@@ -863,7 +863,7 @@ def margin_report(request):
         sales = sales.filter(cashier__id=cashier_id)
 
     sale_ids = sales.values_list('id', flat=True)
-    items = SaleItem.objects.filter(transaction__in=sale_ids).select_related('product')
+    items = SaleItem.objects.filter(transaction__in=sale_ids).select_related('product__category', 'transaction')
 
     # Per-product aggregation
     product_stats = {}
@@ -880,7 +880,7 @@ def margin_report(request):
             }
         qty = item.quantity
         revenue = float(item.price_at_sale) * qty
-        cost = float(item.product.cost_price) * qty
+        cost = float(item.cost_at_sale if item.cost_at_sale is not None else item.product.cost_price) * qty
         product_stats[pid]['revenue'] += revenue
         product_stats[pid]['cost'] += cost
         product_stats[pid]['units_sold'] += qty
@@ -894,11 +894,11 @@ def margin_report(request):
     # Per-day aggregation
     daily_stats = {}
     for item in items:
-        day = item.transaction.created_at.date().isoformat()
+        day = timezone.localtime(item.transaction.created_at).date().isoformat()
         if day not in daily_stats:
             daily_stats[day] = {'date': day, 'revenue': 0.0, 'cost': 0.0}
         daily_stats[day]['revenue'] += float(item.price_at_sale) * item.quantity
-        daily_stats[day]['cost'] += float(item.product.cost_price) * item.quantity
+        daily_stats[day]['cost'] += float(item.cost_at_sale if item.cost_at_sale is not None else item.product.cost_price) * item.quantity
 
     for d in daily_stats.values():
         d['gross_profit'] = round(d['revenue'] - d['cost'], 2)

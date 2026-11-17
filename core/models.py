@@ -132,6 +132,9 @@ class SaleItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.PROTECT, null=False)
     quantity = models.PositiveIntegerField()
     price_at_sale = models.DecimalField(max_digits=10, decimal_places=2)
+    # The product's cost when it was sold, so later cost changes don't rewrite past profit.
+    # Empty on sales made before this was recorded; reports fall back to the current cost.
+    cost_at_sale = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
     def __str__(self):
         return f"{self.product.name} x {self.quantity}"
