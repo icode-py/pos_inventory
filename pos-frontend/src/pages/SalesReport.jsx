@@ -65,6 +65,7 @@ const compactNaira = (n) => {
   return `₦${v}`;
 };
 const count = (n) => Number(n || 0).toLocaleString("en-NG");
+const plural = (n, word) => `${count(n)} ${word}${Number(n) === 1 ? "" : "s"}`;
 const shortDate = (s) => parseYmd(s).toLocaleDateString("en-NG", { day: "numeric", month: "short" });
 const hourLabel = (h) => (h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`);
 
@@ -93,7 +94,7 @@ function Change({ pct, previous, onBrand = false }) {
   if (pct === null || pct === undefined) {
     return (
       <Typography variant="caption" sx={{ color: onBrand ? "rgba(255,255,255,0.85)" : "text.secondary", fontWeight: 600 }}>
-        {previous ? "—" : "New"}
+        {previous ? "—" : "Nothing to compare yet"}
       </Typography>
     );
   }
@@ -140,7 +141,7 @@ function Kpi({ label, value, icon, color, pct, previousValue, previousText, note
             </Typography>
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
               <Change pct={pct} previous={previousValue} />
-              {previousText && <Typography variant="caption" color="text.secondary">vs {previousText}</Typography>}
+              {previousText && pct != null && <Typography variant="caption" color="text.secondary">vs {previousText}</Typography>}
             </Box>
             {note && <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25 }}>{note}</Typography>}
           </>
@@ -169,7 +170,7 @@ function HeroKpi({ label, value, pct, previousValue, previousText, subtitle, spa
         </Box>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", mt: 0.75 }}>
           <Change pct={pct} previous={previousValue} onBrand />
-          {previousText && <Typography variant="caption" sx={{ opacity: 0.9 }}>vs {previousText}</Typography>}
+          {previousText && pct != null && <Typography variant="caption" sx={{ opacity: 0.9 }}>vs {previousText}</Typography>}
         </Box>
         {subtitle && <Typography variant="caption" display="block" sx={{ opacity: 0.85, mt: 0.25 }}>{subtitle}</Typography>}
         {spark?.length > 1 && (
@@ -282,7 +283,7 @@ function StockPanel() {
   const cfg = stock.settings;
   const units = (n, unit) => `${count(n)} ${unit && unit !== "units" ? unit : ""}`.trim();
   const perDay = (d) => (d >= 1 ? `${Number(d.toFixed(1))}/day` : `${Math.round(d * 7 * 10) / 10}/week`);
-  const daysText = (d) => (d < 1 ? "less than a day" : `${Math.floor(d)} day${Math.floor(d) === 1 ? "" : "s"}`);
+  const daysText = (d) => (d < 1 ? "less than a day" : `${Math.round(d)} day${Math.round(d) === 1 ? "" : "s"}`);
 
   const exportRestock = () => {
     const rows = [
@@ -624,7 +625,7 @@ const SalesReport = () => {
           <Grid container spacing={1.5} sx={{ mb: 2 }}>
             <Grid size={{ xs: 12, md: 4 }}>
               <HeroKpi label="Total sales" value={naira(s.revenue)} pct={c.revenue} previousValue={p.revenue} previousText={previousText}
-                subtitle={`${count(s.transactions)} transactions · ${count(s.items)} items`}
+                subtitle={`${plural(s.transactions, "transaction")} · ${plural(s.items, "item")}`}
                 spark={singleDay ? activeHours.map((h) => h.revenue) : data.daily.map((d) => d.revenue)} />
             </Grid>
             <Grid size={{ xs: 12, md: 8 }}>
@@ -713,7 +714,7 @@ const SalesReport = () => {
                                   <LinearProgress variant="determinate" value={Math.min(share(amount), 100)}
                                     sx={{ height: 5, borderRadius: 3, my: 0.75, bgcolor: alpha(color, 0.12), "& .MuiLinearProgress-bar": { bgcolor: color, borderRadius: 3 } }} />
                                   <Typography variant="caption" color="text.secondary" display="block">
-                                    {share(amount).toFixed(0)}% · {count(n)} {label === "Not recorded" ? "sales" : "paid this way"}
+                                    {share(amount).toFixed(0)}% · {label === "Not recorded" ? plural(n, "sale") : `${count(n)} paid this way`}
                                   </Typography>
                                   <Typography variant="caption" color="text.secondary" display="block" sx={{ opacity: 0.8 }}>{hint}</Typography>
                                 </>
@@ -733,7 +734,7 @@ const SalesReport = () => {
                     <Section title="Sales by category" icon={CategoryIcon} color={theme.palette.secondary.main}>
                       {data.categories.slice(0, 6).map((x) => (
                         <ShareBar key={x.name} label={x.name} value={naira(x.revenue)} share={share(x.revenue)} color={theme.palette.secondary.main}
-                          sub={`${share(x.revenue).toFixed(0)}% · ${count(x.transactions)} transactions`} />
+                          sub={`${share(x.revenue).toFixed(0)}% · ${plural(x.transactions, "transaction")}`} />
                       ))}
                     </Section>
                   </Grid>
@@ -741,7 +742,7 @@ const SalesReport = () => {
                     <Section title="Staff" icon={GroupsIcon} color={theme.palette.info.main} action={<Button size="small" onClick={() => setTab(2)}>Details</Button>}>
                       {data.cashiers.map((x) => (
                         <ShareBar key={x.id} label={x.name} value={naira(x.revenue)} share={share(x.revenue)} color={colors.profit}
-                          sub={`${count(x.transactions)} transactions · avg ${naira(x.average_sale)}`} />
+                          sub={`${plural(x.transactions, "transaction")} · avg ${naira(x.average_sale)}`} />
                       ))}
                     </Section>
                   </Grid>
