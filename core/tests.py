@@ -805,3 +805,66 @@ class PaymentMethodTests(TenantTestCase):
         cashier = next(c for c in data['cashiers'] if c['username'] == 'alpha_cashier')
         self.assertEqual((cashier['cash'], cashier['transfer']), (1500, 1300))
         self.assertIsNone(self.client.get('/api/analytics/', {'product_id': self.a['product'].pk}).data['payments'])
+
+
+class StockInsightTests(TenantTestCase):
+    URL = '/api/analytics/stock/'
+
+    def product(self, name, stock, age_days=60, price=500, cost=300):
+        p = Product.objects.create(store=self.a['store'], name=name, category=self.a['category'], price=price,
+                                   cost_price=cost, stock=stock, barcode=name)
+        Product.objects.filter(pk=p.pk).update(created_at=timezone.now() - timedelta(days=age_days))
+        return p
+
+    def sold(self, product, qty, days_ago=1):
+        sale = SaleTransaction.objects.create(store=self.a['store'], cashier=self.a['cashier'],
+                                              total_amount=qty * 500, paid_amount=qty * 500, change_given=0)
+        SaleItem.objects.create(transaction=sale, product=product, quantity=qty, price_at_sale=500)
+        SaleTransaction.objects.filter(pk=sale.pk).update(created_at=timezone.now() - timedelta(days=days_ago))
+
+    def setUp(self):
+        super().setUp()
+        self.fast = self.product('fast', stock=10)
+        self.sold(self.fast, 60)                     # 2 a day, 10 left: 5 days
+        self.out = self.product('out', stock=0)
+        self.sold(self.out, 30)                      # 1 a day, none left
+        self.slow = self.product('slow', stock=20, cost=100)
+        self.sold(self.slow, 5, days_ago=45)         # last sold 45 days ago
+        self.new = self.product('new', stock=20, age_days=3)
+        self.steady = self.product('steady', stock=1000)
+        self.sold(self.steady, 30)
+        self.data = self.client.get(self.URL).data
+
+    def by_name(self, key):
+        return {x['name']: x for x in self.data[key]}
+
+    def test_running_out_with_reorder_suggestion(self):
+        fast = self.by_name('running_out')['fast']
+        self.assertEqual((fast['days_left'], fast['reorder_qty'], fast['reorder_cost']), (5.0, 18, 5400))
+        self.assertNotIn('steady', self.by_name('running_out'))
+
+    def test_out_of_stock_but_selling(self):
+        out = self.by_name('out_of_stock_selling')['out']
+        self.assertEqual((out['missed_per_day'], out['reorder_qty']), (500, 14))
+
+    def test_slow_movers_skip_new_products(self):
+        slow = self.by_name('slow_movers')
+        self.assertEqual(slow['slow']['value_cost'], 2000)
+        self.assertEqual(slow['slow']['days_since_sale'], 45)
+        self.assertNotIn('new', slow)
+
+    def test_totals_and_isolation(self):
+        t = self.data['totals']
+        # fixture product (5 x 300) + fast 10x300 + slow 20x100 + new 20x300 + steady 1000x300
+        self.assertEqual(t['value_cost'], 1500 + 3000 + 2000 + 6000 + 300000)
+        self.assertEqual(t['out_of_stock'], 1)
+        self.assertIn('potential_profit', t)
+        names = {x['name'] for k in ('running_out', 'out_of_stock_selling', 'slow_movers') for x in self.data[k]}
+        self.assertFalse(any(n.startswith('bravo') for n in names))
+
+    def test_cashier_refused_and_lower_plan_hides_profit(self):
+        self.client.force_authenticate(self.a['cashier'])
+        self.assertEqual(self.client.get(self.URL).status_code, 403)
+        Store.objects.filter(pk=self.a['store'].pk).update(plan_tier='STARTER')
+        self.client.force_authenticate(Staff.objects.get(pk=self.a['admin'].pk))
+        self.assertNotIn('potential_profit', self.client.get(self.URL).data['totals'])

@@ -305,3 +305,107 @@ def analytics_items_csv(request):
                          r['product__category__name'] or '', r['quantity'], r['price_at_sale'],
                          round(r['quantity'] * r['price_at_sale'], 2)])
     return response
+
+
+# ─── Stock insights ──────────────────────────────────────────────────────────
+
+SALES_WINDOW_DAYS = 30   # how far back selling speed is measured
+RUNNING_OUT_DAYS = 14    # warn when stock lasts this many days or fewer
+REORDER_COVER_DAYS = 14  # suggested reorder covers this many days of sales
+SLOW_MIN_AGE_DAYS = 14   # a product must be this old before "no sales" means slow
+LIST_LIMIT = 50
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsManagerOrAdmin])
+@throttle_classes([ReportThrottle])
+def stock_insights(request):
+    """What to restock, what's stuck on the shelf and what the stock is worth, as of now."""
+    from math import ceil
+
+    from django.db.models import Max
+
+    from .models import Product
+    from .views import LOW_STOCK_THRESHOLD
+
+    store = current_store(request)
+    with_profit = plan_has_feature('margin_analytics', request)
+    now = timezone.now()
+    since = now - timedelta(days=SALES_WINDOW_DAYS)
+
+    sold = {r['product_id']: r['units'] for r in SaleItem.objects.filter(
+        transaction__store=store, transaction__created_at__gte=since).values('product_id').annotate(units=Sum('quantity'))}
+
+    totals = dict(products=0, units=0, value_cost=0.0, value_retail=0.0, out_of_stock=0, low_stock=0)
+    categories = {}
+    running_out, out_selling, slow = [], [], []
+    for p in Product.objects.filter(store=store).select_related('category'):
+        price, cost = float(p.price), float(p.cost_price)
+        category = p.category.name if p.category else 'Uncategorized'
+        totals['products'] += 1
+        totals['units'] += p.stock
+        totals['value_cost'] += p.stock * cost
+        totals['value_retail'] += p.stock * price
+        if p.stock == 0:
+            totals['out_of_stock'] += 1
+        elif p.stock <= LOW_STOCK_THRESHOLD:
+            totals['low_stock'] += 1
+        c = categories.setdefault(category, {'name': category, 'products': 0, 'units': 0, 'value_cost': 0.0, 'value_retail': 0.0})
+        c['products'] += 1
+        c['units'] += p.stock
+        c['value_cost'] += p.stock * cost
+        c['value_retail'] += p.stock * price
+
+        # A product added last week has had a week to sell, not thirty days
+        age_days = max((now - p.created_at).days, 0)
+        window = max(min(SALES_WINDOW_DAYS, age_days), 1)
+        units_sold = sold.get(p.id, 0)
+        daily = units_sold / window
+        base = {'id': p.id, 'name': p.name, 'category': category, 'stock': p.stock,
+                'unit': p.unit_of_measure, 'sold_30d': units_sold, 'daily': round(daily, 2)}
+        if daily > 0 and p.stock == 0:
+            out_selling.append({**base, 'missed_per_day': round(daily * price, 2),
+                                'reorder_qty': ceil(daily * REORDER_COVER_DAYS)})
+        elif daily > 0:
+            days_left = p.stock / daily
+            if days_left <= RUNNING_OUT_DAYS:
+                qty = max(ceil(daily * REORDER_COVER_DAYS - p.stock), 1)
+                running_out.append({**base, 'days_left': round(days_left, 1), 'reorder_qty': qty,
+                                    'reorder_cost': round(qty * cost, 2)})
+        elif p.stock > 0 and age_days >= SLOW_MIN_AGE_DAYS:
+            slow.append({**base, 'value_cost': round(p.stock * cost, 2), 'value_retail': round(p.stock * price, 2),
+                         'age_days': age_days})
+
+    # When each slow product last sold, if ever
+    if slow:
+        last = dict(SaleItem.objects.filter(product_id__in=[s['id'] for s in slow]).values('product_id')
+                    .annotate(at=Max('transaction__created_at')).values_list('product_id', 'at'))
+        for s in slow:
+            at = last.get(s['id'])
+            s['last_sold'] = timezone.localtime(at).date().isoformat() if at else None
+            s['days_since_sale'] = (now - at).days if at else None
+
+    running_out.sort(key=lambda x: x['days_left'])
+    out_selling.sort(key=lambda x: -x['missed_per_day'])
+    slow.sort(key=lambda x: -x['value_cost'])
+    totals['value_cost'] = round(totals['value_cost'], 2)
+    totals['value_retail'] = round(totals['value_retail'], 2)
+    if with_profit:
+        totals['potential_profit'] = round(totals['value_retail'] - totals['value_cost'], 2)
+
+    return Response({
+        'settings': {'window_days': SALES_WINDOW_DAYS, 'running_out_days': RUNNING_OUT_DAYS,
+                     'reorder_cover_days': REORDER_COVER_DAYS, 'low_stock_threshold': LOW_STOCK_THRESHOLD},
+        'can_view_profit': with_profit,
+        'totals': totals,
+        'running_out': running_out[:LIST_LIMIT],
+        'running_out_count': len(running_out),
+        'reorder_cost_total': round(sum(x['reorder_cost'] for x in running_out), 2),
+        'out_of_stock_selling': out_selling[:LIST_LIMIT],
+        'missed_per_day_total': round(sum(x['missed_per_day'] for x in out_selling), 2),
+        'slow_movers': slow[:LIST_LIMIT],
+        'slow_count': len(slow),
+        'slow_value_total': round(sum(x['value_cost'] for x in slow), 2),
+        'categories': sorted(({**c, 'value_cost': round(c['value_cost'], 2), 'value_retail': round(c['value_retail'], 2)}
+                              for c in categories.values()), key=lambda c: -c['value_cost']),
+    })

@@ -142,6 +142,149 @@ const Empty = ({ children }) => (
   <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>{children}</Typography>
 );
 
+// ── Stock: what to restock and what's stuck, as of now ───────────────────────
+function StockPanel() {
+  const theme = useTheme();
+  const [stock, setStock] = useState(null);
+  const [busy, setBusy] = useState(true);
+  const [failed, setFailed] = useState("");
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    setFailed("");
+    try {
+      const res = await axiosInstance.get("analytics/stock/");
+      setStock(res.data);
+    } catch (err) {
+      setFailed(err.response ? "Could not load stock insights." : "No connection. Stock insights need the internet.");
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  if (busy && !stock) return <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}><CircularProgress /></Box>;
+  if (failed) return <Alert severity="error" action={<Button onClick={load}>Retry</Button>}>{failed}</Alert>;
+  if (!stock) return null;
+
+  const t = stock.totals;
+  const cfg = stock.settings;
+  const units = (n, unit) => `${count(n)} ${unit && unit !== "units" ? unit : ""}`.trim();
+  const perDay = (d) => (d >= 1 ? `${Number(d.toFixed(1))}/day` : `${Math.round(d * 7 * 10) / 10}/week`);
+  const daysText = (d) => (d < 1 ? "less than a day" : `${Math.floor(d)} day${Math.floor(d) === 1 ? "" : "s"}`);
+
+  const exportRestock = () => {
+    const rows = [
+      ...stock.out_of_stock_selling.map((x) => ({ product: x.name, category: x.category, in_stock: 0, sells_per_day: x.daily, status: "Out of stock", reorder_qty: x.reorder_qty })),
+      ...stock.running_out.map((x) => ({ product: x.name, category: x.category, in_stock: x.stock, sells_per_day: x.daily, status: `About ${daysText(x.days_left)} left`, reorder_qty: x.reorder_qty })),
+    ];
+    saveAs(new Blob([Papa.unparse(rows)], { type: "text/csv;charset=utf-8;" }), `restock_list_${ymd(new Date())}.csv`);
+  };
+
+  const Row = ({ title, sub, right, rightSub, rightColor }) => (
+    <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, py: 1, borderBottom: 1, borderColor: "divider", "&:last-child": { borderBottom: 0 } }}>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="body2" fontWeight={600} noWrap>{title}</Typography>
+        <Typography variant="caption" color="text.secondary">{sub}</Typography>
+      </Box>
+      <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+        <Typography variant="body2" fontWeight={700} color={rightColor}>{right}</Typography>
+        {rightSub && <Typography variant="caption" color="text.secondary">{rightSub}</Typography>}
+      </Box>
+    </Box>
+  );
+
+  const restockCount = stock.running_out_count + stock.out_of_stock_selling.length;
+
+  return (
+    <Box sx={{ opacity: busy ? 0.6 : 1 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5, gap: 1 }}>
+        <Typography variant="body2" color="text.secondary">
+          Stock right now. Selling speed is from the last {cfg.window_days} days.
+        </Typography>
+        <IconButton size="small" onClick={load} disabled={busy}><RefreshIcon fontSize="small" /></IconButton>
+      </Box>
+
+      <Grid container spacing={1.5} sx={{ mb: 2 }}>
+        {[
+          ["Stock value (cost)", naira(t.value_cost), `${count(t.units)} items · ${count(t.products)} products`],
+          ["Stock value (selling)", naira(t.value_retail), stock.can_view_profit ? `${naira(t.potential_profit)} profit if all sold` : "At today's prices"],
+          ["Out of stock", count(t.out_of_stock), stock.missed_per_day_total > 0 ? `About ${naira(stock.missed_per_day_total)} in sales missed a day` : "products"],
+          ["Low stock", count(t.low_stock), `${cfg.low_stock_threshold} or fewer left`],
+        ].map(([label, value, note]) => (
+          <Grid key={label} size={{ xs: 6, md: 3 }}>
+            <Card sx={{ height: "100%" }}>
+              <CardContent sx={{ p: { xs: 1.5, sm: 2 }, "&:last-child": { pb: { xs: 1.5, sm: 2 } } }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 }}>{label}</Typography>
+                <Typography sx={{ fontWeight: 700, fontSize: { xs: "1.15rem", sm: "1.5rem" }, overflowWrap: "anywhere" }}>{value}</Typography>
+                <Typography variant="caption" color="text.secondary">{note}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Section
+            title={`Restock soon (${restockCount})`}
+            action={restockCount > 0 && <Button size="small" startIcon={<DownloadIcon />} onClick={exportRestock}>List</Button>}
+          >
+            {restockCount === 0 ? (
+              <Empty>Nothing is about to run out. Every selling product has more than {cfg.running_out_days} days of stock.</Empty>
+            ) : (
+              <>
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                  Order amounts cover about {cfg.reorder_cover_days} days of sales.
+                  {stock.reorder_cost_total > 0 && <> Restocking the running-out items costs about <b>{naira(stock.reorder_cost_total)}</b>.</>}
+                </Typography>
+                {stock.out_of_stock_selling.map((x) => (
+                  <Row key={`o${x.id}`} title={x.name} sub={`Out of stock · sells ${perDay(x.daily)}`}
+                    right={`Order ${count(x.reorder_qty)}`} rightSub={`missing ${naira(x.missed_per_day)}/day`} rightColor="error.main" />
+                ))}
+                {stock.running_out.map((x) => (
+                  <Row key={x.id} title={x.name} sub={`${units(x.stock, x.unit)} left · sells ${perDay(x.daily)}`}
+                    right={`Order ${count(x.reorder_qty)}`} rightSub={`~${daysText(x.days_left)} left`}
+                    rightColor={x.days_left <= 3 ? "error.main" : "warning.main"} />
+                ))}
+              </>
+            )}
+          </Section>
+        </Grid>
+
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Section title={`Not selling (${stock.slow_count})`}>
+            {stock.slow_count === 0 ? (
+              <Empty>Every product in stock sold at least once in the last {cfg.window_days} days.</Empty>
+            ) : (
+              <>
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                  No sales in {cfg.window_days} days. <b>{naira(stock.slow_value_total)}</b> is tied up here. Try a discount, a better shelf spot, or stop reordering.
+                </Typography>
+                {stock.slow_movers.map((x) => (
+                  <Row key={x.id} title={x.name}
+                    sub={`${units(x.stock, x.unit)} · ${x.days_since_sale != null ? `last sold ${x.days_since_sale} days ago` : "never sold"}`}
+                    right={naira(x.value_cost)} rightSub="at cost" />
+                ))}
+              </>
+            )}
+          </Section>
+        </Grid>
+
+        <Grid size={{ xs: 12 }}>
+          <Section title="Stock value by category">
+            {stock.categories.map((x) => (
+              <ShareBar key={x.name} label={x.name} value={naira(x.value_cost)} color={theme.palette.secondary.main}
+                share={t.value_cost ? (x.value_cost / t.value_cost) * 100 : 0}
+                sub={`${t.value_cost ? ((x.value_cost / t.value_cost) * 100).toFixed(0) : 0}% · ${count(x.units)} items · ${naira(x.value_retail)} at selling price`} />
+            ))}
+          </Section>
+        </Grid>
+      </Grid>
+    </Box>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 const SalesReport = () => {
   const theme = useTheme();
@@ -204,8 +347,9 @@ const SalesReport = () => {
   }, [params]);
 
   const canProfit = !!data?.can_view_profit;
-  const tabs = ["Overview", "Products", "Staff", "Sales", ...(canProfit ? ["Profit"] : [])];
-  useEffect(() => { if (tab === 3 && data && salesPage.page === 0 && !salesLoading) loadSales(1); }, [tab, data, salesPage.page, salesLoading, loadSales]);
+  const tabs = ["Overview", "Products", "Staff", "Sales", ...(canProfit ? ["Profit"] : []), "Stock"];
+  const current = tabs[Math.min(tab, tabs.length - 1)];
+  useEffect(() => { if (current === "Sales" && data && salesPage.page === 0 && !salesLoading) loadSales(1); }, [current, data, salesPage.page, salesLoading, loadSales]);
   useEffect(() => { if (tab >= tabs.length) setTab(0); }, [tab, tabs.length]);
 
   const choosePeriod = (key) => {
@@ -387,21 +531,24 @@ const SalesReport = () => {
             </Grid>
           </Grid>
 
-          {s.transactions === 0 ? (
+          <Paper sx={{ mb: 2 }}>
+            <Tabs value={Math.min(tab, tabs.length - 1)} onChange={(e, v) => setTab(v)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
+              {tabs.map((t) => <Tab key={t} label={t} sx={{ minWidth: 72 }} />)}
+            </Tabs>
+          </Paper>
+
+          {current === "Stock" ? (
+            <StockPanel />
+          ) : s.transactions === 0 ? (
             <Paper variant="outlined" sx={{ p: 4, textAlign: "center" }}>
               <Typography fontWeight={600}>No sales in this period</Typography>
               <Typography variant="body2" color="text.secondary">Pick another period or clear the filters.</Typography>
             </Paper>
           ) : (
             <>
-              <Paper sx={{ mb: 2 }}>
-                <Tabs value={Math.min(tab, tabs.length - 1)} onChange={(e, v) => setTab(v)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
-                  {tabs.map((t) => <Tab key={t} label={t} sx={{ minWidth: 72 }} />)}
-                </Tabs>
-              </Paper>
 
               {/* Overview */}
-              {tab === 0 && (
+              {current === "Overview" && (
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12, md: 8 }}>
                     <Section title={singleDay ? "Sales by hour" : "Sales trend"}>
@@ -490,7 +637,7 @@ const SalesReport = () => {
               )}
 
               {/* Products */}
-              {tab === 1 && (
+              {current === "Products" && (
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12 }}>
                     <Section title={`Products sold (${data.products.length})`}
@@ -564,7 +711,7 @@ const SalesReport = () => {
               )}
 
               {/* Staff */}
-              {tab === 2 && (
+              {current === "Staff" && (
                 <Grid container spacing={2}>
                   {data.cashiers.map((x, i) => (
                     <Grid key={x.id} size={{ xs: 12, sm: 6, md: 4 }}>
@@ -597,7 +744,7 @@ const SalesReport = () => {
               )}
 
               {/* Sales list */}
-              {tab === 3 && (
+              {current === "Sales" && (
                 <Section title={`Transactions (${count(salesPage.count || s.transactions)})`}
                   action={<Button size="small" startIcon={itemsBusy ? <CircularProgress size={14} /> : <DownloadIcon />} onClick={exportItems} disabled={itemsBusy}>Items CSV</Button>}>
                   <TableContainer>
@@ -646,7 +793,7 @@ const SalesReport = () => {
               )}
 
               {/* Profit */}
-              {canProfit && tab === 4 && (
+              {current === "Profit" && (
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12 }}>
                     <Section title={singleDay ? "Today's sales, cost and profit" : "Sales, cost and profit by day"}>

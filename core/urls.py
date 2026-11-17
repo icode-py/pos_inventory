@@ -1,7 +1,7 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 from .platform_admin import PlatformStoreViewSet
-from .analytics import store_analytics, analytics_sales, analytics_items_csv
+from .analytics import store_analytics, analytics_sales, analytics_items_csv, stock_insights
 from .views import (
     SaleTransactionViewSet, StaffViewSet, RefusedSaleViewSet,
     restock_product, sales_report, RestockHistoryViewSet,
@@ -46,6 +46,7 @@ urlpatterns = [
     path('analytics/', store_analytics, name='analytics'),
     path('analytics/sales/', analytics_sales, name='analytics-sales'),
     path('analytics/items.csv', analytics_items_csv, name='analytics-items-csv'),
+    path('analytics/stock/', stock_insights, name='analytics-stock'),
     path('store-settings/', get_store_settings, name='store-settings'),
     path('store-settings/update/', update_store_settings, name='store-settings-update'),
     path('staff/<int:pk>/update/', update_staff, name='update-staff'),
