@@ -1,10 +1,11 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 from .platform_admin import PlatformStoreViewSet
+from .restock import restock_product, restock_history, restock_summary
 from .analytics import store_analytics, analytics_sales, analytics_items_csv, stock_insights
 from .views import (
     SaleTransactionViewSet, StaffViewSet, RefusedSaleViewSet,
-    restock_product, sales_report, RestockHistoryViewSet,
+    sales_report,
     CustomerViewSet, CustomerTransactionViewSet, LoyaltySettingsViewSet,
     redeem_loyalty_points, store_today_sales, user_today_performance,
     BulkDiscountViewSet, register_staff,
@@ -21,7 +22,6 @@ router.register(r'sales', SaleTransactionViewSet)
 router.register(r'refused-sales', RefusedSaleViewSet, basename='refused-sales')
 router.register(r'staff', StaffViewSet)
 router.register(r'platform/stores', PlatformStoreViewSet, basename='platform-stores')
-router.register(r'restock-history', RestockHistoryViewSet, basename='restock-history')
 router.register(r'customers', CustomerViewSet, basename='customers')
 router.register(r'customer-transactions', CustomerTransactionViewSet, basename='customer-transactions')
 router.register(r'loyalty-settings', LoyaltySettingsViewSet, basename='loyalty-settings')
@@ -36,6 +36,8 @@ urlpatterns = [
 
     path('', include(router.urls)),
     path('restock/', restock_product, name='restock_product'),
+    path('restock-history/', restock_history, name='restock-history'),
+    path('restock-summary/', restock_summary, name='restock-summary'),
     path('sales-report/', sales_report, name='sales-report'),
     path('store-today-sales/', store_today_sales, name='store-today-sales'),
     path('user-today-performance/', user_today_performance, name='user-today-performance'),

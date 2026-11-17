@@ -128,13 +128,6 @@ class StaffViewSet(StoreScopedMixin, viewsets.ReadOnlyModelViewSet):
     pagination_class = None
 
 
-class RestockHistoryViewSet(StoreScopedMixin, viewsets.ReadOnlyModelViewSet):
-    queryset = Restock.objects.select_related('product', 'restocked_by').order_by('-restocked_at')
-    serializer_class = RestockSerializer
-    permission_classes = [IsAuthenticated, IsCashierOrManager]
-    pagination_class = None
-
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 @throttle_classes([BurstRateThrottle])
@@ -184,44 +177,6 @@ def register_staff(request):
     except Exception as e:
         logger.error('register_staff error: %s', e)
         return Response({'error': 'Could not create staff account.'}, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated, IsManagerOrAdmin])
-@throttle_classes([BurstRateThrottle])
-def restock_product(request):
-    product_id = request.data.get("product_id")
-    quantity = request.data.get("quantity")
-
-    if not product_id or not quantity:
-        return Response({"error": "Missing product_id or quantity"}, status=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        product = Product.objects.get(id=product_id, store=current_store(request))
-        product.stock += int(quantity)
-        product.save()
-
-        restock = Restock.objects.create(
-            store=product.store,
-            product=product,
-            quantity_added=int(quantity),
-            restocked_by=request.user
-        )
-
-        AuditLog.objects.create(
-            store=current_store(request),
-            action='CREATE',
-            model_name='Restock',
-            object_id=str(restock.pk),
-            object_repr=f'{product.name} +{quantity}',
-            changed_by=request.user,
-            changes={'product': product.name, 'quantity_added': int(quantity), 'new_stock': product.stock},
-        )
-        logger.info('Restock: %s +%s by %s', product.name, quantity, request.user.username)
-
-        return Response({"message": "Stock updated successfully", "stock": product.stock})
-    except Product.DoesNotExist:
-        return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 @api_view(['GET'])

@@ -62,6 +62,7 @@ class TenantTestCase(APITestCase):
         cls.b = make_store_data('bravo')
 
     def setUp(self):
+        cache.clear()  # rate limits are counted in the cache; each test starts fresh
         self.client = APIClient()
         self.client.force_authenticate(self.a['admin'])
 
@@ -89,7 +90,7 @@ class ListIsolationTests(TenantTestCase):
         self.assertEqual(self.ids('/api/staff/'), {self.a['admin'].pk, self.a['cashier'].pk})
 
     def test_restock_history(self):
-        names = [r['product_name'] for r in self.client.get('/api/restock-history/').data]
+        names = [r['product_name'] for r in self.client.get('/api/restock-history/').data['results']]
         self.assertEqual(names, ['alpha Fanta'])
 
     def test_audit_log(self):
@@ -868,3 +869,65 @@ class StockInsightTests(TenantTestCase):
         Store.objects.filter(pk=self.a['store'].pk).update(plan_tier='STARTER')
         self.client.force_authenticate(Staff.objects.get(pk=self.a['admin'].pk))
         self.assertNotIn('potential_profit', self.client.get(self.URL).data['totals'])
+
+
+
+class RestockTests(TenantTestCase):
+    URL = '/api/restock/'
+
+    def post(self, payload):
+        return self.client.post(self.URL, payload, format='json')
+
+    def stock(self, product):
+        return Product.objects.get(pk=product.pk).stock
+
+    def test_delivery_of_several_products(self):
+        water = Product.objects.create(store=self.a['store'], name='Water', category=self.a['category'],
+                                       price=200, cost_price=100, stock=0, barcode='w1')
+        response = self.post({'items': [
+            {'product_id': self.a['product'].pk, 'quantity': 24, 'unit_cost': 320},
+            {'product_id': water.pk, 'quantity': 40},
+        ]})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual((self.stock(self.a['product']), self.stock(water)), (29, 40))
+        r = Restock.objects.get(product=self.a['product'], quantity_added=24)
+        self.assertEqual((r.unit_cost, r.stock_after), (320, 29))
+        # Restocking never touches the product's prices
+        self.assertEqual(Product.objects.get(pk=self.a['product'].pk).cost_price, 300)
+        self.assertEqual(AuditLog.objects.filter(model_name='Restock', store=self.a['store']).count(), 2)
+
+    def test_single_item_still_works(self):
+        response = self.post({'product_id': self.a['product'].pk, 'quantity': '5'})
+        self.assertEqual((response.status_code, response.data['stock']), (200, 10))
+
+    def test_bad_quantities_change_nothing(self):
+        for quantity in (-50, 0, '12abc', 1.5, None, True, 100001):
+            response = self.post({'product_id': self.a['product'].pk, 'quantity': quantity})
+            self.assertEqual(response.status_code, 400, quantity)
+        self.assertEqual(self.stock(self.a['product']), 5)
+        self.assertEqual(self.post({'product_id': self.a['product'].pk, 'quantity': 2, 'unit_cost': -1}).status_code, 400)
+
+    def test_one_bad_line_saves_none(self):
+        response = self.post({'items': [
+            {'product_id': self.a['product'].pk, 'quantity': 3},
+            {'product_id': self.b['product'].pk, 'quantity': 3},  # other store's product
+        ]})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.stock(self.a['product']), 5)
+        self.assertEqual(self.stock(self.b['product']), 5)
+
+    def test_cashier_cannot_restock_or_see_history(self):
+        self.client.force_authenticate(self.a['cashier'])
+        self.assertEqual(self.post({'product_id': self.a['product'].pk, 'quantity': 1}).status_code, 403)
+        self.assertEqual(self.client.get('/api/restock-history/').status_code, 403)
+
+    def test_history_pages_search_and_summary(self):
+        for _ in range(30):
+            self.post({'product_id': self.a['product'].pk, 'quantity': 1, 'unit_cost': 300})
+        page = self.client.get('/api/restock-history/', {'page': 2}).data
+        self.assertEqual((page['count'], len(page['results'])), (31, 6))
+        self.assertEqual(self.client.get('/api/restock-history/', {'search': 'nothing'}).data['count'], 0)
+        newest = self.client.get('/api/restock-history/').data['results'][0]
+        self.assertEqual((newest['total_cost'], newest['stock_after']), (300, 35))
+        summary = self.client.get('/api/restock-summary/').data
+        self.assertEqual((summary['today_restocks'], summary['month_spend']), (31, 9000))

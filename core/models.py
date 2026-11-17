@@ -174,6 +174,10 @@ class Restock(models.Model):
     quantity_added = models.PositiveIntegerField()
     restocked_by = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True)
     restocked_at = models.DateTimeField(auto_now_add=True)
+    # What was paid per item on this delivery, for tracking stock spending. It does not
+    # change the product's cost price; prices are edited on the Products page.
+    unit_cost = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    stock_after = models.PositiveIntegerField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.product.name} +{self.quantity_added} on {self.restocked_at}"
