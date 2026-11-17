@@ -23,8 +23,7 @@ export function buildReceiptText(sale, store) {
 
   lines.push('--------------------------');
   lines.push(`Total: ${naira(sale.total_amount || sale.total)}`);
-  lines.push(`Paid: ${naira(sale.paid_amount || sale.paidAmount)}`);
-  lines.push(`Change: ${naira(sale.change_given || sale.changeAmount)}`);
+  paymentLines(sale).forEach(([label, amount]) => lines.push(`${label}: ${naira(amount)}`));
 
   if (sale.customer) {
     const earned = Math.floor(parseFloat(sale.total_amount || sale.total || 0) / 100);
@@ -44,4 +43,27 @@ export function toWhatsAppNumber(phone) {
   if (digits.startsWith('234')) return digits;
   if (digits.startsWith('0')) return `234${digits.slice(1)}`;
   return digits;
+}
+
+/** The payment part of a receipt as [label, amount] rows, by how the customer paid. */
+export function paymentLines(sale) {
+  const num = (v) => parseFloat(v) || 0;
+  const paid = num(sale.paid_amount ?? sale.paidAmount);
+  const change = num(sale.change_given ?? sale.changeAmount);
+  const transfer = num(sale.transfer_amount);
+  const card = num(sale.card_amount);
+  switch (sale.payment_method) {
+    case 'TRANSFER': return [['Paid by transfer', paid]];
+    case 'POS': return [['Paid by POS card', paid]];
+    case 'SPLIT': {
+      const rows = [];
+      if (transfer) rows.push(['Transfer', transfer]);
+      if (card) rows.push(['POS card', card]);
+      const cash = paid - transfer - card;
+      if (cash) rows.push(['Cash', cash]);
+      if (change) rows.push(['Change', change]);
+      return rows;
+    }
+    default: return [['Paid (cash)', paid], ['Change', change]];
+  }
 }

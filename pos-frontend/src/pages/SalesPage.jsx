@@ -75,7 +75,11 @@ const SalesPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [quickProducts, setQuickProducts] = useState([]);
   const [scannerActive, setScannerActive] = useState(true);
-  const [changeAmount, setChangeAmount] = useState(0);
+  // How the customer pays: CASH, TRANSFER, POS or SPLIT (some by transfer/POS, the rest cash)
+  const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [transferPart, setTransferPart] = useState("");
+  const [cardPart, setCardPart] = useState("");
+  const paymentOkRef = useRef(false);
   const [suggestedAmounts, setSuggestedAmounts] = useState([]);
   const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
   // Quantity typed in for one cart line: { product, packs, singles }
@@ -272,7 +276,6 @@ const SalesPage = () => {
 
   useEffect(() => {
     const total = calculateTotal();
-    setChangeAmount(parseFloat(paidAmount) - total || 0);
 
     // Generate suggested amounts
     const suggestions = [];
@@ -376,7 +379,7 @@ const SalesPage = () => {
         e.preventDefault();
         switch (e.key) {
           case 'Enter':
-            if (cart.length > 0 && paidAmount && parseFloat(paidAmount) >= calculateTotal()) {
+            if (cart.length > 0 && paymentOkRef.current) {
               handleCompleteSale();
             }
             break;
@@ -532,13 +535,22 @@ const SalesPage = () => {
     }
   };
 
+  const resetPayment = () => {
+    setPaymentMethod("CASH");
+    setTransferPart("");
+    setCardPart("");
+  };
+
   const handleCompleteSale = async () => {
+    if (!paymentOkRef.current) return;
     const total = calculateTotal();
     const saleData = {
       client_ref: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
       total_amount: total,
-      paid_amount: parseFloat(paidAmount),
+      paid_amount: payment.paid,
       change_given: changeAmount,
+      payment_method: paymentMethod,
+      ...(paymentMethod === "SPLIT" ? { transfer_amount: payment.transfer, card_amount: payment.card } : {}),
       items: cart.map(item => ({
         product_id: item.product.id,
         quantity: item.quantity,
@@ -558,8 +570,11 @@ const SalesPage = () => {
 
       const saleWithDetails = {
         total_amount: total,
-        paid_amount: parseFloat(paidAmount),
+        paid_amount: payment.paid,
         change_given: changeAmount,
+        payment_method: paymentMethod,
+        transfer_amount: payment.transfer,
+        card_amount: payment.card,
         items: cart.map(item => ({
           product: {
             ...item.product,
@@ -590,6 +605,7 @@ const SalesPage = () => {
         // Reset form
         setCart([]);
         setPaidAmount("");
+        resetPayment();
         setBarcodeInput("");
         setSelectedCustomer(null);
         localStorage.removeItem(storeKey('pos-cart'));
@@ -605,8 +621,11 @@ const SalesPage = () => {
 
       const saleWithDetails = {
         total_amount: total,
-        paid_amount: parseFloat(paidAmount),
+        paid_amount: payment.paid,
         change_given: changeAmount,
+        payment_method: paymentMethod,
+        transfer_amount: payment.transfer,
+        card_amount: payment.card,
         items: cart.map(item => ({
           product: {
             ...item.product,
@@ -640,6 +659,7 @@ const SalesPage = () => {
         // Reset form
         setCart([]);
         setPaidAmount("");
+        resetPayment();
         setBarcodeInput("");
         setSelectedCustomer(null);
         if (scannerActive) barcodeRef.current?.focus();
@@ -672,6 +692,7 @@ const SalesPage = () => {
           presentReceipt();
           setCart([]);
           setPaidAmount("");
+          resetPayment();
           setSelectedCustomer(null);
           localStorage.removeItem(storeKey('pos-cart'));
         }, 500);
@@ -723,6 +744,31 @@ const SalesPage = () => {
 
 
   const totalAmount = calculateTotal();
+
+  // Cash due is what's left after transfer/POS; change only ever comes out of cash
+  const payment = (() => {
+    const total = totalAmount;
+    const num = (v) => parseFloat(v) || 0;
+    const r2 = (v) => Math.round(v * 100) / 100;
+    if (paymentMethod === "TRANSFER" || paymentMethod === "POS") {
+      return { transfer: paymentMethod === "TRANSFER" ? total : 0, card: paymentMethod === "POS" ? total : 0,
+        cashDue: 0, cashReceived: 0, paid: total, change: 0, ok: total > 0, reason: "" };
+    }
+    const transfer = paymentMethod === "SPLIT" ? num(transferPart) : 0;
+    const card = paymentMethod === "SPLIT" ? num(cardPart) : 0;
+    const cashDue = Math.max(r2(total - transfer - card), 0);
+    const cashReceived = num(paidAmount);
+    const change = r2(cashReceived - cashDue);
+    let reason = "";
+    if (paymentMethod === "SPLIT" && transfer + card <= 0) reason = "Enter the transfer or POS part";
+    else if (transfer + card > total) reason = "Transfer and POS are more than the total";
+    else if (cashDue > 0 && paidAmount === "") reason = paymentMethod === "SPLIT" ? "Enter the cash received" : "Enter amount paid";
+    else if (change < 0) reason = `Short by ${formatCurrency(-change)}`;
+    return { transfer, card, cashDue, cashReceived, paid: r2(cashReceived + transfer + card),
+      change: Math.max(change, 0), short: change < 0 ? -change : 0, ok: total > 0 && !reason, reason };
+  })();
+  const changeAmount = payment.change;
+  paymentOkRef.current = payment.ok;
 
   // 🔥 Cart Item Component with Bulk Pricing - Enhanced with discount display
   const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
@@ -1297,61 +1343,127 @@ const SalesPage = () => {
                 )}
               </Box>
 
-              <TextField
-                label="Amount Paid"
-                type="number"
-                fullWidth
-                value={paidAmount}
-                onChange={(e) => setPaidAmount(e.target.value)}
-                inputProps={{ min: totalAmount }}
-                sx={{ mb: 2 }}
-                size="small"
-              />
+              <Typography variant="caption" color="textSecondary" display="block" gutterBottom>
+                Payment method
+              </Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0.75, mb: 2 }}>
+                {[['CASH', 'Cash'], ['TRANSFER', 'Transfer'], ['POS', 'POS'], ['SPLIT', 'Split']].map(([value, label]) => (
+                  <Button
+                    key={value}
+                    size="small"
+                    variant={paymentMethod === value ? 'contained' : 'outlined'}
+                    onClick={() => setPaymentMethod(value)}
+                    sx={{ minWidth: 0, px: 0.5, fontWeight: 700 }}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </Box>
 
-              {totalAmount > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="caption" color="textSecondary" display="block" gutterBottom>
-                    Quick Amounts:
+              {(paymentMethod === 'TRANSFER' || paymentMethod === 'POS') && totalAmount > 0 && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  <Typography variant="body2">
+                    {paymentMethod === 'TRANSFER'
+                      ? <>Confirm the <strong>{formatCurrency(totalAmount)}</strong> transfer alert before completing.</>
+                      : <>Confirm the POS slip shows <strong>{formatCurrency(totalAmount)}</strong> approved.</>}
                   </Typography>
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    {suggestedAmounts.map(amount => (
-                      <Chip
-                        key={amount}
-                        label={formatCurrency(amount)}
-                        size="small"
-                        onClick={() => setPaidAmount(amount.toString())}
-                        variant={parseFloat(paidAmount) === amount ? "filled" : "outlined"}
-                        color="primary"
-                      />
-                    ))}
-                  </Box>
+                </Alert>
+              )}
+
+              {paymentMethod === 'SPLIT' && (
+                <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
+                  <TextField
+                    label="Transfer part"
+                    type="number"
+                    size="small"
+                    value={transferPart}
+                    onChange={(e) => setTransferPart(e.target.value)}
+                    inputProps={{ min: 0, inputMode: 'decimal' }}
+                    sx={{ flex: 1 }}
+                  />
+                  <TextField
+                    label="POS part"
+                    type="number"
+                    size="small"
+                    value={cardPart}
+                    onChange={(e) => setCardPart(e.target.value)}
+                    inputProps={{ min: 0, inputMode: 'decimal' }}
+                    sx={{ flex: 1 }}
+                  />
                 </Box>
               )}
 
-              {changeAmount >= 0 && paidAmount && (
+              {(paymentMethod === 'CASH' || (paymentMethod === 'SPLIT' && payment.cashDue > 0)) && (
+                <>
+                  {paymentMethod === 'SPLIT' && (
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      Cash to collect: <strong>{formatCurrency(payment.cashDue)}</strong>
+                    </Typography>
+                  )}
+                  <TextField
+                    label={paymentMethod === 'SPLIT' ? 'Cash received' : 'Amount Paid'}
+                    type="number"
+                    fullWidth
+                    value={paidAmount}
+                    onChange={(e) => setPaidAmount(e.target.value)}
+                    inputProps={{ min: payment.cashDue, inputMode: 'decimal' }}
+                    sx={{ mb: 2 }}
+                    size="small"
+                  />
+
+                  {paymentMethod === 'CASH' && totalAmount > 0 && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="textSecondary" display="block" gutterBottom>
+                        Quick Amounts:
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        {suggestedAmounts.map(amount => (
+                          <Chip
+                            key={amount}
+                            label={formatCurrency(amount)}
+                            size="small"
+                            onClick={() => setPaidAmount(amount.toString())}
+                            variant={parseFloat(paidAmount) === amount ? "filled" : "outlined"}
+                            color="primary"
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                  {paymentMethod === 'SPLIT' && payment.cashDue > 0 && (
+                    <Chip
+                      label={`Exact: ${formatCurrency(payment.cashDue)}`}
+                      size="small"
+                      color="primary"
+                      variant={parseFloat(paidAmount) === payment.cashDue ? 'filled' : 'outlined'}
+                      onClick={() => setPaidAmount(payment.cashDue.toString())}
+                      sx={{ mb: 2 }}
+                    />
+                  )}
+                </>
+              )}
+
+              {payment.ok && payment.change > 0 && (
                 <Alert severity="success" sx={{ mb: 2 }}>
                   <Typography variant="body2">
-                    Change: <strong>{formatCurrency(changeAmount)}</strong>
+                    Change: <strong>{formatCurrency(payment.change)}</strong>
                   </Typography>
                 </Alert>
               )}
 
-              {changeAmount < 0 && (
+              {cart.length > 0 && payment.reason && (payment.short > 0 || paymentMethod === 'SPLIT') && (paidAmount !== '' || transferPart !== '' || cardPart !== '') && (
                 <Alert severity="error" sx={{ mb: 2 }}>
-                  <Typography variant="body2">
-                    Insufficient amount. Short by: <strong>{formatCurrency(Math.abs(changeAmount))}</strong>
-                  </Typography>
+                  <Typography variant="body2">{payment.reason}</Typography>
                 </Alert>
               )}
 
-              <Tooltip title={cart.length === 0 ? "Add products to cart" : !paidAmount ? "Enter amount paid" : parseFloat(paidAmount) < totalAmount ? "Insufficient payment" : isOnline ? "Complete sale (Ctrl+Enter)" : "Complete sale offline"}>
+              <Tooltip title={cart.length === 0 ? "Add products to cart" : payment.reason || (isOnline ? "Complete sale (Ctrl+Enter)" : "Complete sale offline")}>
                 <span>
                   <Button
                     variant="contained"
                     color={isOnline ? "primary" : "warning"}
                     onClick={handleCompleteSale}
-                    disabled={cart.length === 0 || !paidAmount || isPrinting ||
-                      isNaN(paidAmount) || parseFloat(paidAmount) < totalAmount}
+                    disabled={cart.length === 0 || !payment.ok || isPrinting}
                     fullWidth
                     size="large"
                     startIcon={isPrinting ? <PrintIcon /> : isOnline ? <ReceiptIcon /> : <SaveIcon />}

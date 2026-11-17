@@ -86,6 +86,14 @@ class SaleTransaction(models.Model):
     paid_amount = models.DecimalField(max_digits=15, decimal_places=2)
     change_given = models.DecimalField(max_digits=15, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
+    # How the customer paid. Blank on sales made before this was recorded.
+    PAYMENT_METHODS = [('CASH', 'Cash'), ('TRANSFER', 'Transfer'), ('POS', 'POS card'), ('SPLIT', 'Split')]
+    payment_method = models.CharField(max_length=10, choices=PAYMENT_METHODS, blank=True, default='')
+    # The part of the total settled each way (they add up to total_amount). Cash is what
+    # should be in the drawer: cash handed over minus change.
+    cash_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    transfer_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    card_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     # Set by the till, so a sale resent after a dropped connection is only recorded once
     client_ref = models.CharField(max_length=64, null=True, blank=True, editable=False)
 

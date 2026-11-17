@@ -25,6 +25,8 @@ const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 const parseYmd = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 
+const PAY_LABELS = { CASH: "Cash", TRANSFER: "Transfer", POS: "POS card", SPLIT: "Split" };
+
 const PERIODS = [
   { key: "today", label: "Today" },
   { key: "yesterday", label: "Yesterday" },
@@ -426,6 +428,36 @@ const SalesReport = () => {
                       ))}
                     </Section>
                   </Grid>
+                  {data.payments && (
+                    <Grid size={{ xs: 12 }}>
+                      <Section title="How customers paid">
+                        <Grid container spacing={1.5}>
+                          {[
+                            ["Cash", data.payments.cash, data.payments.counts.cash, "In the drawer, after change"],
+                            ["Transfer", data.payments.transfer, data.payments.counts.transfer, "Check against bank alerts"],
+                            ["POS card", data.payments.card, data.payments.counts.card, "Check against POS settlement"],
+                            ...(data.payments.unrecorded > 0 ? [["Not recorded", data.payments.unrecorded, data.payments.counts.unrecorded, "Sales before payment methods"]] : []),
+                          ].map(([label, amount, n, hint]) => (
+                            <Grid key={label} size={{ xs: 6, md: 3 }}>
+                              <Paper variant="outlined" sx={{ p: 1.5, height: "100%" }}>
+                                <Typography variant="caption" color="text.secondary" fontWeight={600}>{label}</Typography>
+                                <Typography fontWeight={700} sx={{ fontSize: { xs: "1.05rem", sm: "1.25rem" } }}>{naira(amount)}</Typography>
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                  {share(amount).toFixed(0)}% · {count(n)} {label === "Not recorded" ? "sales" : "paid this way"}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ opacity: 0.8 }}>{hint}</Typography>
+                              </Paper>
+                            </Grid>
+                          ))}
+                        </Grid>
+                        {data.payments.counts.split > 0 && (
+                          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                            {data.payments.counts.split === 1 ? "1 split payment is" : `${count(data.payments.counts.split)} split payments are`} shared across the boxes above.
+                          </Typography>
+                        )}
+                      </Section>
+                    </Grid>
+                  )}
                   <Grid size={{ xs: 12, md: 6 }}>
                     <Section title="Sales by category">
                       {data.categories.slice(0, 6).map((x) => (
@@ -546,9 +578,11 @@ const SalesReport = () => {
                             <Typography variant="caption" color="text.secondary">{share(x.revenue).toFixed(0)}% of sales</Typography>
                           </Box>
                           <Typography variant="h6" fontWeight={700}>{naira(x.revenue)}</Typography>
+                          <Typography variant="caption" color="text.secondary">Cash to hand over: <b>{naira(x.cash)}</b></Typography>
                           <LinearProgress variant="determinate" value={share(x.revenue)} sx={{ height: 6, borderRadius: 3, my: 1 }} />
                           <Grid container spacing={1}>
-                            {[["Transactions", count(x.transactions)], ["Avg. sale", naira(x.average_sale)], ["Items", count(x.items)]].map(([k, v]) => (
+                            {[["Transactions", count(x.transactions)], ["Avg. sale", naira(x.average_sale)], ["Items", count(x.items)],
+                              ["Cash", naira(x.cash)], ["Transfer", naira(x.transfer)], ["POS", naira(x.card)]].map(([k, v]) => (
                               <Grid key={k} size={{ xs: 4 }}>
                                 <Typography variant="caption" color="text.secondary" display="block">{k}</Typography>
                                 <Typography variant="body2" fontWeight={600}>{v}</Typography>
@@ -592,7 +626,10 @@ const SalesReport = () => {
                               </TableCell>
                               <TableCell sx={{ display: { xs: "none", sm: "table-cell" } }}>{x.cashier}</TableCell>
                               <TableCell align="right" sx={{ display: { xs: "none", sm: "table-cell" } }}>{x.items}</TableCell>
-                              <TableCell align="right" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>{naira(x.total_amount, 2)}</TableCell>
+                              <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                                <Typography variant="body2" fontWeight={700}>{naira(x.total_amount, 2)}</Typography>
+                                <Typography variant="caption" color="text.secondary">{PAY_LABELS[x.payment_method] || "—"}</Typography>
+                              </TableCell>
                             </TableRow>
                           );
                         })}

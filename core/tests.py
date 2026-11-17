@@ -759,3 +759,49 @@ class AnalyticsTests(TenantTestCase):
         csv_text = self.client.get('/api/analytics/items.csv', {'start_date': start, 'end_date': self.today}).content.decode()
         self.assertEqual(len(csv_text.strip().splitlines()), 1 + 1 + 2 + 30)
         self.assertNotIn('bravo', csv_text)
+
+
+class PaymentMethodTests(TenantTestCase):
+
+    def sell(self, total=1000, paid=None, change=0, **payment):
+        Product.objects.filter(pk=self.a['product'].pk).update(stock=100)
+        self.client.force_authenticate(self.a['cashier'])
+        payload = {'total_amount': total, 'paid_amount': paid or total, 'change_given': change,
+                   'items': [{'product_id': self.a['product'].pk, 'quantity': 2, 'price_at_sale': total / 2}], **payment}
+        return self.client.post('/api/sales/', payload, format='json')
+
+    def amounts(self, response):
+        self.assertEqual(response.status_code, 201, response.content)
+        sale = SaleTransaction.objects.get(pk=response.data['id'])
+        return sale.payment_method, sale.cash_amount, sale.transfer_amount, sale.card_amount
+
+    def test_old_tills_are_recorded_as_cash(self):
+        self.assertEqual(self.amounts(self.sell(paid=1500, change=500)), ('CASH', 1000, 0, 0))
+
+    def test_transfer_and_pos(self):
+        self.assertEqual(self.amounts(self.sell(payment_method='TRANSFER')), ('TRANSFER', 0, 1000, 0))
+        self.assertEqual(self.amounts(self.sell(payment_method='POS')), ('POS', 0, 0, 1000))
+
+    def test_split_keeps_only_the_cash_part_in_the_drawer(self):
+        # 600 by transfer, then 500 cash handed over for the 400 left: 100 change
+        response = self.sell(paid=1100, change=100, payment_method='SPLIT', transfer_amount=600)
+        self.assertEqual(self.amounts(response), ('SPLIT', 400, 600, 0))
+
+    def test_bad_splits_refused(self):
+        self.assertEqual(self.sell(payment_method='SPLIT').status_code, 400)
+        self.assertEqual(self.sell(payment_method='SPLIT', transfer_amount=800, card_amount=400).status_code, 400)
+        self.assertEqual(self.sell(payment_method='CHEQUE').status_code, 400)
+
+    def test_report_splits_money_by_channel(self):
+        self.sell(paid=1500, change=500)
+        self.sell(payment_method='TRANSFER')
+        self.sell(paid=1100, change=100, payment_method='SPLIT', transfer_amount=300, card_amount=200)
+        self.client.force_authenticate(self.a['admin'])
+        today = timezone.localdate()
+        data = self.client.get('/api/analytics/', {'start_date': today, 'end_date': today}).data
+        p = data['payments']
+        self.assertEqual((p['cash'], p['transfer'], p['card'], p['unrecorded']), (1500, 1300, 200, 500))
+        self.assertEqual(p['counts']['split'], 1)
+        cashier = next(c for c in data['cashiers'] if c['username'] == 'alpha_cashier')
+        self.assertEqual((cashier['cash'], cashier['transfer']), (1500, 1300))
+        self.assertIsNone(self.client.get('/api/analytics/', {'product_id': self.a['product'].pk}).data['payments'])

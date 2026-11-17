@@ -7,7 +7,7 @@ the server's TIME_ZONE (Africa/Lagos).
 import csv
 from datetime import timedelta
 
-from django.db.models import Count, DecimalField, ExpressionWrapper, F, Sum
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
 from django.db.models.functions import Coalesce, ExtractHour, TruncDate
 from django.http import HttpResponse
 from django.utils import timezone
@@ -26,6 +26,7 @@ LINE_REVENUE = ExpressionWrapper(F('quantity') * F('price_at_sale'), output_fiel
 LINE_COST = ExpressionWrapper(
     F('quantity') * Coalesce('cost_at_sale', 'product__cost_price'), output_field=MONEY)
 MAX_DAYS = 366
+PAYMENT_LABELS = dict(SaleTransaction.PAYMENT_METHODS)
 PAGE_SIZE = 25
 
 
@@ -132,11 +133,29 @@ class Scope:
             'quantity': r['units'], 'transactions': r['transactions'], 'products': r['products'],
         }, r['cost'], with_profit) for r in rows]
 
+    def payments(self):
+        """Money by channel: cash in the drawer, bank transfers and POS card, plus older sales with no method."""
+        recorded = ~Q(payment_method='')
+        t = self.sales.aggregate(
+            cash=Sum('cash_amount', filter=recorded), transfer=Sum('transfer_amount', filter=recorded),
+            card=Sum('card_amount', filter=recorded), unrecorded=Sum('total_amount', filter=Q(payment_method='')))
+        counts = dict(self.sales.values_list('payment_method').annotate(n=Count('id')))
+        return {
+            'cash': money(t['cash']), 'transfer': money(t['transfer']), 'card': money(t['card']),
+            'unrecorded': money(t['unrecorded']),
+            'counts': {'cash': counts.get('CASH', 0), 'transfer': counts.get('TRANSFER', 0),
+                       'card': counts.get('POS', 0), 'split': counts.get('SPLIT', 0),
+                       'unrecorded': counts.get('', 0)},
+        }
+
     def cashiers(self):
         items = {r['transaction__cashier_id']: r['n'] for r in
                  self.lines.values('transaction__cashier_id').annotate(n=Sum('quantity'))}
+        recorded = ~Q(payment_method='')
         rows = self.sales.values('cashier_id', 'cashier__username', 'cashier__first_name').annotate(
-            revenue=Sum('total_amount'), transactions=Count('id')).order_by('-revenue')
+            revenue=Sum('total_amount'), transactions=Count('id'),
+            cash=Sum('cash_amount', filter=recorded), transfer=Sum('transfer_amount', filter=recorded),
+            card=Sum('card_amount', filter=recorded)).order_by('-revenue')
         result = []
         for r in rows:
             revenue = money(r['revenue'])
@@ -147,6 +166,7 @@ class Scope:
                 'revenue': revenue, 'transactions': r['transactions'],
                 'items': items.get(r['cashier_id'], 0),
                 'average_sale': round(revenue / r['transactions'], 2) if r['transactions'] else 0,
+                'cash': money(r['cash']), 'transfer': money(r['transfer']), 'card': money(r['card']),
             })
         return result
 
@@ -228,6 +248,8 @@ def store_analytics(request):
         'products': now.products(with_profit),
         'categories': now.categories(with_profit),
         'cashiers': now.cashiers(),
+        # Payments are per sale, so a product filter can't split them
+        'payments': None if product_id else now.payments(),
     })
 
 
@@ -245,13 +267,15 @@ def analytics_sales(request):
     total = sales.count()
     rows = sales.order_by('-created_at').annotate(item_count=Sum('items__quantity')).values(
         'id', 'cashier__username', 'total_amount', 'paid_amount', 'change_given', 'created_at',
-        'item_count')[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]
+        'item_count', 'payment_method', 'cash_amount', 'transfer_amount', 'card_amount')[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]
     return Response({
         'count': total, 'page': page, 'page_size': PAGE_SIZE,
         'results': [{
             'id': r['id'], 'cashier': r['cashier__username'], 'total_amount': money(r['total_amount']),
             'paid_amount': money(r['paid_amount']), 'change_given': money(r['change_given']),
             'created_at': timezone.localtime(r['created_at']).isoformat(), 'items': r['item_count'] or 0,
+            'payment_method': r['payment_method'], 'cash_amount': money(r['cash_amount']),
+            'transfer_amount': money(r['transfer_amount']), 'card_amount': money(r['card_amount']),
         } for r in rows],
     })
 
@@ -269,13 +293,15 @@ def analytics_items_csv(request):
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = f'attachment; filename="sales_items_{start}_to_{end}.csv"'
     writer = csv.writer(response)
-    writer.writerow(['sale_id', 'date', 'time', 'cashier', 'product', 'category', 'quantity', 'unit_price', 'line_total'])
+    writer.writerow(['sale_id', 'date', 'time', 'cashier', 'payment', 'product', 'category', 'quantity', 'unit_price', 'line_total'])
     for r in lines.order_by('transaction__created_at').values(
-            'transaction_id', 'transaction__created_at', 'transaction__cashier__username', 'product__name',
+            'transaction_id', 'transaction__created_at', 'transaction__cashier__username',
+            'transaction__payment_method', 'product__name',
             'product__category__name', 'quantity', 'price_at_sale').iterator():
         at = timezone.localtime(r['transaction__created_at'])
         writer.writerow([r['transaction_id'], at.date().isoformat(), at.strftime('%H:%M'),
-                         r['transaction__cashier__username'], r['product__name'],
+                         r['transaction__cashier__username'],
+                         PAYMENT_LABELS.get(r['transaction__payment_method'], 'Not recorded'), r['product__name'],
                          r['product__category__name'] or '', r['quantity'], r['price_at_sale'],
                          round(r['quantity'] * r['price_at_sale'], 2)])
     return response

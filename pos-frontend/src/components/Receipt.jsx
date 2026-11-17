@@ -1,12 +1,11 @@
 import React, { forwardRef } from "react";
+import { paymentLines } from "../utils/receiptText";
 
 const Receipt = forwardRef(({ sale, store }, ref) => {
   if (!sale) return null;
 
   // Safely extract values with proper fallbacks
   const total = parseFloat(sale.total_amount || sale.total || 0);
-  const paidAmount = parseFloat(sale.paid_amount || sale.paidAmount || 0);
-  const changeAmount = parseFloat(sale.change_given || sale.changeAmount || 0);
   const items = sale.items || [];
   const customer = sale.customer;
   
@@ -130,14 +129,12 @@ const Receipt = forwardRef(({ sale, store }, ref) => {
           <strong>Subtotal:</strong>
           <strong>₦{total.toFixed(2)}</strong>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-          <span>Paid:</span>
-          <span>₦{paidAmount.toFixed(2)}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-          <span>Change:</span>
-          <span>₦{changeAmount.toFixed(2)}</span>
-        </div>
+        {paymentLines(sale).map(([label, amount]) => (
+          <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+            <span>{label}:</span>
+            <span>₦{amount.toFixed(2)}</span>
+          </div>
+        ))}
       </div>
       
       {/* Loyalty Points Earned */}

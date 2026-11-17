@@ -8,6 +8,7 @@ from django.utils import timezone
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 import decimal
+from decimal import Decimal
 import re
 import logging
 
@@ -266,10 +267,18 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
     total_amount = MoneyField()
     paid_amount = MoneyField()
     change_given = MoneyField()
+    # Tills that predate payment methods send none, and those sales were cash
+    payment_method = serializers.ChoiceField(
+        choices=[c for c, _ in SaleTransaction.PAYMENT_METHODS], required=False, default='CASH')
+    transfer_amount = MoneyField(required=False, min_value=0)
+    card_amount = MoneyField(required=False, min_value=0)
+    cash_amount = MoneyField(read_only=True)
 
     class Meta:
         model = SaleTransaction
-        fields = ['id', 'cashier', 'total_amount', 'paid_amount', 'change_given', 'created_at', 'items', 'customer_name', 'customer_id', 'client_ref', 'sold_at']
+        fields = ['id', 'cashier', 'total_amount', 'paid_amount', 'change_given', 'created_at', 'items',
+                  'customer_name', 'customer_id', 'client_ref', 'sold_at',
+                  'payment_method', 'cash_amount', 'transfer_amount', 'card_amount']
 
     def validate_total_amount(self, value):
         if value <= 0:
@@ -306,6 +315,8 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
                 'change_given': f'Change given should be {expected_change:.2f}'
             })
 
+        self.split_payment(data)
+
         # Validate items exist and have sufficient stock
         items_data = data.get('items', [])
         if not items_data:
@@ -314,6 +325,30 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
             })
 
         return data
+
+    @staticmethod
+    def split_payment(data):
+        """Work out how much of the sale was settled by cash, transfer and POS card.
+
+        Transfer and card are what the customer sent that way; cash is the rest, i.e. what
+        should end up in the drawer after change.
+        """
+        method = data.get('payment_method') or 'CASH'
+        paid = data['paid_amount']
+        transfer, card = Decimal(0), Decimal(0)
+        if method == 'TRANSFER':
+            transfer = paid
+        elif method == 'POS':
+            card = paid
+        elif method == 'SPLIT':
+            transfer = data.get('transfer_amount') or Decimal(0)
+            card = data.get('card_amount') or Decimal(0)
+            if transfer + card <= 0:
+                raise serializers.ValidationError({'payment_method': 'A split payment needs a transfer or POS amount'})
+            if transfer + card > paid:
+                raise serializers.ValidationError({'payment_method': 'Transfer and POS amounts are more than the amount paid'})
+        data.update(payment_method=method, transfer_amount=transfer, card_amount=card,
+                    cash_amount=data['total_amount'] - transfer - card)
 
     @transaction.atomic
     def create(self, validated_data):
