@@ -17,6 +17,11 @@ from .authentication import check_store_access
 logger = logging.getLogger(__name__)
 
 
+def is_cashier_only(user):
+    return bool(user and user.is_authenticated and not (
+        getattr(user, 'is_manager', False) or getattr(user, 'is_admin', False) or user.is_superuser))
+
+
 class StoreScopedPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
     """A foreign key that only accepts records from the requesting user's store."""
 
@@ -166,7 +171,21 @@ class ProductSerializer(UniqueInStoreMixin, serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = ['id', 'name', 'category', 'category_id', 'price', 'cost_price', 'stock', 'barcode', 'created_at', 'is_bulk_product', 'bulk_quantity','bulk_price', 'unit_of_measure', 'unit_price', 'display_price', 'bulk_discounts']
+        fields = ['id', 'name', 'category', 'category_id', 'price', 'cost_price', 'stock', 'barcode', 'created_at', 'is_bulk_product', 'bulk_quantity','bulk_price', 'unit_of_measure', 'unit_price', 'display_price', 'bulk_discounts', 'is_archived']
+        read_only_fields = ['is_archived']
+
+    def update(self, instance, validated_data):
+        # Stock only changes through sales, restocks and stock adjustments. An edit form
+        # carries the stock it loaded, and saving it would undo sales made meanwhile.
+        validated_data.pop('stock', None)
+        return super().update(instance, validated_data)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request and is_cashier_only(request.user):
+            data.pop('cost_price', None)  # owners don't share buying prices with till staff
+        return data
 
     def validate_name(self, value):
         if len(value.strip()) < 2:

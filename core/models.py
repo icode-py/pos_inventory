@@ -54,6 +54,8 @@ class Product(models.Model):
     bulk_quantity = models.PositiveIntegerField(default=1, help_text="Number of units in a bulk pack")
     bulk_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True, help_text="Price for the entire bulk pack")
     unit_of_measure = models.CharField(max_length=20, default='units', help_text="e.g., pieces, kg, liters, packs")
+    # Archived products are hidden from the till and lists but keep their sales history
+    is_archived = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         constraints = [
@@ -181,6 +183,33 @@ class Restock(models.Model):
 
     def __str__(self):
         return f"{self.product.name} +{self.quantity_added} on {self.restocked_at}"
+
+
+class StockAdjustment(models.Model):
+    """A stock change that isn't a sale or a delivery: damage, expiry, theft, a shelf count..."""
+    REASONS = [
+        ('DAMAGED', 'Damaged'),
+        ('EXPIRED', 'Expired'),
+        ('STOLEN', 'Stolen or missing'),
+        ('COUNT', 'Count correction'),
+        ('RETURNED', 'Returned to supplier'),
+        ('OTHER', 'Other'),
+    ]
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='adjustments')
+    change = models.IntegerField(help_text='Negative removes stock, positive adds it')
+    reason = models.CharField(max_length=10, choices=REASONS)
+    note = models.CharField(max_length=200, blank=True, default='')
+    stock_before = models.PositiveIntegerField()
+    stock_after = models.PositiveIntegerField()
+    unit_cost = models.DecimalField(max_digits=15, decimal_places=2, help_text="Product cost when adjusted")
+    # Lines saved together in one shelf count share a reference
+    count_ref = models.CharField(max_length=40, blank=True, default='')
+    adjusted_by = models.ForeignKey('Staff', on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return f"{self.product.name} {self.change:+d} ({self.reason})"
     
 
 class Customer(models.Model):

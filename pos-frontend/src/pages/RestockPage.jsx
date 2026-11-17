@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import axiosInstance from '../utils/axiosInstance';
 import { storeKey } from '../utils/storeKey';
 import BarcodeScannerDialog from '../components/BarcodeScannerDialog';
@@ -87,6 +87,7 @@ function readDelivery() {
 const Restock = () => {
   const theme = useTheme();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState([]);
   const [summary, setSummary] = useState(null);
   const [suggestions, setSuggestions] = useState(null);
@@ -139,6 +140,14 @@ const Restock = () => {
   }, [search]);
 
   useEffect(() => { loadProducts(); loadSummary(); loadSuggestions(); }, [loadProducts, loadSummary, loadSuggestions]);
+  // Coming from Products with ?product=ID: start with that product chosen
+  useEffect(() => {
+    const wanted = Number(searchParams.get('product'));
+    if (!wanted || !products.length) return;
+    const product = products.find((p) => p.id === wanted);
+    if (product) choose(product);
+    setSearchParams({}, { replace: true });
+  }, [products]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const t = setTimeout(() => loadHistory(1, search), 350);
     return () => clearTimeout(t);

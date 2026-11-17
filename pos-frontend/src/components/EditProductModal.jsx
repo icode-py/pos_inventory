@@ -33,7 +33,9 @@ const EditProductModal = ({ open, onClose, product, onSuccess, onError }) => {
   }, [open]);
 
   const handleSubmit = () => {
-    axiosInstance.put(`products/${formData.id}/`, toProductPayload(formData))
+    // Stock is left out: it only changes through sales, restocks and adjustments
+    const { stock, ...payload } = toProductPayload(formData);
+    axiosInstance.patch(`products/${formData.id}/`, payload)
       .then(() => {
         onSuccess?.();
         onClose();
@@ -48,7 +50,7 @@ const EditProductModal = ({ open, onClose, product, onSuccess, onError }) => {
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Edit Product</DialogTitle>
       <DialogContent dividers>
-        <ProductFormFields formData={formData} setFormData={setFormData} categories={categories} />
+        <ProductFormFields formData={formData} setFormData={setFormData} categories={categories} editing />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>

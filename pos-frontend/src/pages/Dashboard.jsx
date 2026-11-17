@@ -182,6 +182,9 @@ const Dashboard = () => {
       const lowStockItems    = products.filter(p => parseInt(p.stock || 0) <= 10).length;
       const criticalStockItems = products.filter(p => parseInt(p.stock || 0) <= 5).length;
       const inventoryValue   = products.reduce((s, p) => s + parseFloat(p.cost_price || 0) * parseInt(p.stock || 0), 0);
+      // Cashiers aren't sent cost prices, so they see how many products are in stock instead
+      const canSeeCost = products.some(p => 'cost_price' in p);
+      const inStockCount = products.filter(p => parseInt(p.stock || 0) > 0).length;
 
       const recentSales = sales.slice(0, 5).map(sale => ({
         id: sale.id,
@@ -217,6 +220,8 @@ const Dashboard = () => {
         recentSales,
         topProducts,
         inventoryValue,
+        canSeeCost,
+        inStockCount,
         pendingOfflineSales: pendingSales.length,
       });
     } catch (err) {
@@ -306,9 +311,9 @@ const Dashboard = () => {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
           <StatCard
-            title="Inventory Value"
-            value={loading ? '—' : formatCurrency(stats.inventoryValue)}
-            subtitle="Total cost value on hand"
+            title={stats.canSeeCost === false ? "Products In Stock" : "Inventory Value"}
+            value={loading ? '—' : stats.canSeeCost === false ? stats.inStockCount.toLocaleString() : formatCurrency(stats.inventoryValue)}
+            subtitle={stats.canSeeCost === false ? "Available to sell" : "Total cost value on hand"}
             icon={<TrendingUpIcon />}
             gradient={G.emerald}
             loading={loading}

@@ -1,6 +1,7 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 from .platform_admin import PlatformStoreViewSet
+from .stock import stock_adjustments, count_sheet
 from .restock import restock_product, restock_history, restock_summary
 from .analytics import store_analytics, analytics_sales, analytics_items_csv, stock_insights
 from .views import (
@@ -33,11 +34,13 @@ urlpatterns = [
     # otherwise the router matches products/<pk>/ and swallows them
     path('products/download-template/', download_product_template, name='product-template'),
     path('products/bulk-upload/', bulk_upload_products, name='bulk-upload'),
+    path('products/count-sheet/', count_sheet, name='count-sheet'),
 
     path('', include(router.urls)),
     path('restock/', restock_product, name='restock_product'),
     path('restock-history/', restock_history, name='restock-history'),
     path('restock-summary/', restock_summary, name='restock-summary'),
+    path('stock-adjustments/', stock_adjustments, name='stock-adjustments'),
     path('sales-report/', sales_report, name='sales-report'),
     path('store-today-sales/', store_today_sales, name='store-today-sales'),
     path('user-today-performance/', user_today_performance, name='user-today-performance'),

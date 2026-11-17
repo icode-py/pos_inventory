@@ -22,7 +22,7 @@ export const productErrorMessage = (err) => {
   return Object.values(data).flat().join(' ');
 };
 
-const ProductFormFields = ({ formData, setFormData, categories }) => {
+const ProductFormFields = ({ formData, setFormData, categories, editing = false }) => {
   const handleChange = (e) => {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
@@ -58,7 +58,10 @@ const ProductFormFields = ({ formData, setFormData, categories }) => {
           fullWidth
           value={formData.stock}
           onChange={handleChange}
-          helperText={formData.is_bulk_product ? `Count single ${unit}, not packs` : undefined}
+          disabled={editing}
+          helperText={editing
+            ? "Change stock with Restock or Adjust stock"
+            : formData.is_bulk_product ? `Count single ${unit}, not packs` : undefined}
         />
       </Grid>
       <Grid size={{ xs: 6 }}>

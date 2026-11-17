@@ -698,6 +698,25 @@ const SalesReport = () => {
                       ))}
                     </Section>
                   </Grid>
+                  {data.stock_loss?.total > 0 && (
+                    <Grid size={{ xs: 12 }}>
+                      <Section title={`Stock lost: ${naira(data.stock_loss.total)}`} icon={WarningIcon} color={theme.palette.error.main}>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.25 }}>
+                          Goods removed as damaged, expired, stolen or short in a count, at cost price.
+                        </Typography>
+                        {data.stock_loss.by_reason.map((r) => (
+                          <ShareBar key={r.reason} label={r.label} value={naira(r.value)} color={theme.palette.error.main}
+                            share={(r.value / data.stock_loss.total) * 100}
+                            sub={`${plural(r.units, "item")} · ${plural(r.count, "time")}`} />
+                        ))}
+                        {data.stock_loss.count_found_value > 0 && (
+                          <Typography variant="caption" color="text.secondary">
+                            Counts also found {naira(data.stock_loss.count_found_value)} more stock than recorded.
+                          </Typography>
+                        )}
+                      </Section>
+                    </Grid>
+                  )}
                   {data.payments && (
                     <Grid size={{ xs: 12 }}>
                       <Section title="How customers paid" icon={WalletIcon} color={theme.palette.success.main}>

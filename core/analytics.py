@@ -19,6 +19,7 @@ from rest_framework.throttling import UserRateThrottle
 
 from .models import SaleItem, SaleTransaction
 from .permissions import IsManagerOrAdmin, current_store, plan_has_feature
+from .stock import stock_loss
 
 MONEY = DecimalField(max_digits=18, decimal_places=2)
 LINE_REVENUE = ExpressionWrapper(F('quantity') * F('price_at_sale'), output_field=MONEY)
@@ -250,6 +251,8 @@ def store_analytics(request):
         'cashiers': now.cashiers(),
         # Payments are per sale, so a product filter can't split them
         'payments': None if product_id else now.payments(),
+        # Stock lost to damage, expiry, theft and count shortfalls in the same dates
+        'stock_loss': None if (cashier_id or product_id) else stock_loss(store, start, end),
     })
 
 
@@ -339,7 +342,7 @@ def stock_insights(request):
     totals = dict(products=0, units=0, value_cost=0.0, value_retail=0.0, out_of_stock=0, low_stock=0)
     categories = {}
     running_out, out_selling, slow = [], [], []
-    for p in Product.objects.filter(store=store).select_related('category'):
+    for p in Product.objects.filter(store=store, is_archived=False).select_related('category'):
         price, cost = float(p.price), float(p.cost_price)
         category = p.category.name if p.category else 'Uncategorized'
         totals['products'] += 1

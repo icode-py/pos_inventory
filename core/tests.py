@@ -12,7 +12,7 @@ from rest_framework.test import APIClient, APITestCase
 
 from .models import (
     AuditLog, BulkDiscount, Category, Customer, CustomerTransaction, LoyaltySettings, Product,
-    RefusedSale, Restock, SaleItem, SaleTransaction, Staff, Store,
+    RefusedSale, Restock, SaleItem, SaleTransaction, Staff, StockAdjustment, Store,
 )
 
 TEST_SETTINGS = dict(
@@ -418,6 +418,15 @@ class BulkUploadTests(TenantTestCase):
         self.assertEqual(Product.objects.get(barcode='333').store, self.a['store'])
         self.assertEqual(Category.objects.get(name='Fresh').store, self.a['store'])
         self.assertEqual(Category.objects.filter(name='Drinks').count(), 2)
+
+    def test_reupload_updates_prices_but_keeps_stock(self):
+        response = self.upload()
+        self.a['product'].refresh_from_db()
+        # Existing product: price from the sheet, stock untouched (5, not 7)
+        self.assertEqual((self.a['product'].price, self.a['product'].stock), (900, 5))
+        new = Product.objects.get(barcode='333', store=self.a['store'])
+        self.assertEqual((new.name, new.price, new.stock), ('Brand New', 900, 7))
+        self.assertTrue(response.data['stock_note'])
 
     def test_upload_checks_bulk_pricing(self):
         wb = openpyxl.Workbook()
@@ -931,3 +940,110 @@ class RestockTests(TenantTestCase):
         self.assertEqual((newest['total_cost'], newest['stock_after']), (300, 35))
         summary = self.client.get('/api/restock-summary/').data
         self.assertEqual((summary['today_restocks'], summary['month_spend']), (31, 9000))
+
+
+class InventoryManagementTests(TenantTestCase):
+    ADJ = '/api/stock-adjustments/'
+
+    def product_url(self, suffix=''):
+        return f"/api/products/{self.a['product'].pk}/{suffix}"
+
+    def stock(self):
+        return Product.objects.get(pk=self.a['product'].pk).stock
+
+    def adjust(self, **line):
+        return self.client.post(self.ADJ, {'items': [{'product_id': self.a['product'].pk, **line}]}, format='json')
+
+    def test_editing_a_product_never_overwrites_stock(self):
+        # The form loaded stock 5; a sale happens; saving the form must not bring the sold item back
+        Product.objects.filter(pk=self.a['product'].pk).update(stock=4)
+        payload = {'name': 'alpha Fanta', 'category_id': self.a['category'].pk, 'price': '600',
+                   'cost_price': '300', 'stock': 5, 'barcode': '111'}
+        self.assertEqual(self.client.put(self.product_url(), payload, format='json').status_code, 200)
+        p = Product.objects.get(pk=self.a['product'].pk)
+        self.assertEqual((p.stock, p.price), (4, 600))
+
+    def test_new_products_still_take_their_opening_stock(self):
+        response = self.client.post('/api/products/', {'name': 'Cola', 'category_id': self.a['category'].pk, 'price': '100',
+                                                       'cost_price': '50', 'stock': 12, 'barcode': 'c1'}, format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(Product.objects.get(barcode='c1', store=self.a['store']).stock, 12)
+
+    def test_cashiers_do_not_see_cost_prices(self):
+        self.assertIn('cost_price', self.client.get('/api/products/').data[0])
+        self.client.force_authenticate(self.a['cashier'])
+        rows = self.client.get('/api/products/').data
+        self.assertNotIn('cost_price', rows[0])
+        sales = self.client.get('/api/sales/').data
+        sales = sales['results'] if isinstance(sales, dict) else sales
+        self.assertNotIn('cost_price', sales[0]['items'][0]['product'])
+
+    def test_archive_hides_and_restore_brings_back(self):
+        self.assertEqual(self.client.delete(self.product_url()).data['can_archive'], True)  # has a sale
+        self.assertEqual(self.client.post(self.product_url('archive/')).status_code, 200)
+        self.assertEqual(self.ids('/api/products/'), set())
+        self.assertEqual(self.ids('/api/products/?archived=1'), {self.a['product'].pk})
+        self.client.force_authenticate(self.a['cashier'])
+        self.assertEqual(self.ids('/api/products/?archived=1'), set())
+        self.assertEqual(self.client.post(self.product_url('restore/')).status_code, 403)
+        self.client.force_authenticate(self.a['admin'])
+        self.client.post(self.product_url('restore/'))
+        self.assertEqual(self.ids('/api/products/'), {self.a['product'].pk})
+        self.assertEqual(self.client.post(f"/api/products/{self.b['product'].pk}/archive/").status_code, 404)
+
+    def test_remove_damaged_stock_is_recorded(self):
+        response = self.adjust(change=-2, reason='DAMAGED', note='dropped crate')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.stock(), 3)
+        adj = StockAdjustment.objects.get(store=self.a['store'])
+        self.assertEqual((adj.change, adj.stock_before, adj.stock_after, adj.unit_cost, adj.adjusted_by),
+                         (-2, 5, 3, 300, self.a['admin']))
+        self.assertTrue(AuditLog.objects.filter(model_name='StockAdjustment', store=self.a['store']).exists())
+
+    def test_bad_adjustments_change_nothing(self):
+        for line in ({'change': -6, 'reason': 'DAMAGED'}, {'change': 0, 'reason': 'DAMAGED'},
+                     {'change': '2x', 'reason': 'DAMAGED'}, {'change': -1}, {'change': -1, 'reason': 'OTHER'},
+                     {'change': -1, 'counted': 3, 'reason': 'COUNT'}, {'counted': -1}):
+            self.assertEqual(self.adjust(**line).status_code, 400, line)
+        self.assertEqual(self.stock(), 5)
+        other = self.client.post(self.ADJ, {'items': [{'product_id': self.b['product'].pk, 'change': -1, 'reason': 'DAMAGED'}]}, format='json')
+        self.assertEqual(other.status_code, 404)
+        self.client.force_authenticate(self.a['cashier'])
+        self.assertEqual(self.adjust(change=-1, reason='DAMAGED').status_code, 403)
+        self.assertFalse(StockAdjustment.objects.exists())
+
+    def test_shelf_count_records_only_differences(self):
+        water = Product.objects.create(store=self.a['store'], name='Water', category=self.a['category'],
+                                       price=200, cost_price=100, stock=10, barcode='w1')
+        response = self.client.post(self.ADJ, {'items': [
+            {'product_id': self.a['product'].pk, 'counted': 7},
+            {'product_id': water.pk, 'counted': 10},
+        ]}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual((response.data['unchanged'], self.stock()), (1, 7))
+        adj = StockAdjustment.objects.get(store=self.a['store'])
+        self.assertEqual((adj.change, adj.reason, bool(adj.count_ref)), (2, 'COUNT', True))
+
+    def test_reports_show_stock_lost(self):
+        self.adjust(change=-2, reason='DAMAGED')
+        self.adjust(change=-1, reason='RETURNED')  # sent back to the supplier: not a loss
+        today = timezone.localdate()
+        loss = self.client.get('/api/analytics/', {'start_date': today, 'end_date': today}).data['stock_loss']
+        self.assertEqual((loss['total'], loss['by_reason'][0]['reason']), (600, 'DAMAGED'))
+        listed = self.client.get(self.ADJ, {'product_id': self.a['product'].pk}).data
+        self.assertEqual(listed['count'], 2)
+
+    def test_product_insights_and_count_sheet(self):
+        data = self.client.get(self.product_url('insights/')).data
+        self.assertEqual(data['sold_30d'], 1)
+        sheet = self.client.get('/api/products/count-sheet/')
+        self.assertEqual(sheet.status_code, 200)
+        self.assertIn('spreadsheetml', sheet['Content-Type'])
+        self.client.force_authenticate(self.a['cashier'])
+        self.assertEqual(self.client.get('/api/products/count-sheet/').status_code, 403)
+        self.assertEqual(self.client.get(self.product_url('insights/')).status_code, 403)
+
+    def test_archived_products_leave_stock_insights(self):
+        Product.objects.filter(pk=self.a['product'].pk).update(is_archived=True)
+        totals = self.client.get('/api/analytics/stock/').data['totals']
+        self.assertEqual(totals['products'], 0)

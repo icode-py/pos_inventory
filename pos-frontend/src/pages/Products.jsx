@@ -1,788 +1,659 @@
 import {
-  Container, Typography, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Paper, Button, Snackbar, Alert, Box, Grid,
-  Card, CardContent, Chip, IconButton, TextField, MenuItem, Avatar,
-  LinearProgress, Tooltip, Dialog, DialogTitle, DialogContent,
-  DialogActions, FormControl, InputLabel, Select, CircularProgress,
-  List, ListItem, ListItemText, TablePagination, Checkbox
+  Alert, Avatar, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog, DialogActions,
+  DialogContent, DialogTitle, Divider, Grid, IconButton, InputAdornment, List, ListItem, ListItemIcon,
+  ListItemText, Menu, MenuItem, Paper, Snackbar, Table, TableBody, TableCell, TableContainer, TableHead,
+  TableRow, TextField, Tooltip, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
-import { useEffect, useRef, useState, useCallback, useContext } from "react";
+import { alpha } from "@mui/material/styles";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 import { useStore } from "../context/StoreContext";
 import axiosInstance from "../utils/axiosInstance";
 import AddProductModal from "../components/AddProductModal";
-import CategoryManagerModal from '../components/CategoryManagerModal';
+import CategoryManagerModal from "../components/CategoryManagerModal";
 import EditProductModal from "../components/EditProductModal";
+import StockAdjustDialog from "../components/StockAdjustDialog";
+import StockCountDialog from "../components/StockCountDialog";
+import BarcodeScannerDialog from "../components/BarcodeScannerDialog";
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Warning as WarningIcon,
-  Inventory as InventoryIcon,
-  TrendingUp as TrendingUpIcon,
-  Category as CategoryIcon,
-  Search as SearchIcon,
-  QrCode as BarcodeIcon,
-  LowPriority as LowStockIcon,
-  Visibility as ViewIcon,
-  Download as DownloadIcon,
-  Upload as UploadIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  ArrowUpward as AscIcon,
-  ArrowDownward as DescIcon,
-  UnfoldMore as UnsortedIcon,
-  DeleteSweep as BulkDeleteIcon,
+  Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Inventory2 as InventoryIcon, Category as CategoryIcon,
+  Search as SearchIcon, QrCodeScanner as ScanIcon, Visibility as ViewIcon, Download as DownloadIcon,
+  Upload as UploadIcon, MoreVert as MoreIcon, Archive as ArchiveIcon, Unarchive as RestoreIcon,
+  LocalShipping as RestockIcon, Tune as AdjustIcon, FactCheck as CountIcon, WarningAmber as WarningIcon,
+  RemoveShoppingCart as OutIcon, Savings as ValueIcon, CheckCircle as CheckIcon, Close as CloseIcon,
 } from "@mui/icons-material";
 
-// Currency formatting helper function
-const formatCurrency = (amount) => {
-  if (amount === null || amount === undefined || isNaN(amount)) {
-    return '₦0.00';
-  }
+const BRAND_GRADIENT = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+const LOW_STOCK = 10;
+const PAGE = 30;
 
-  // Convert to number if it's a string
-  const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
-
-  // Format with commas for thousands and two decimal places
-  return `₦${numAmount.toLocaleString('en-NG', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  })}`;
+const naira = (n, d = 0) => `₦${Number(n || 0).toLocaleString("en-NG", { minimumFractionDigits: d, maximumFractionDigits: 2 })}`;
+const count = (n) => Number(n || 0).toLocaleString("en-NG");
+const unitWord = (p) => (p?.unit_of_measure && p.unit_of_measure !== "units" ? p.unit_of_measure : "items");
+const packOf = (p) => (p?.is_bulk_product && Number(p.bulk_quantity) > 1 ? Number(p.bulk_quantity) : 0);
+// Profit as a share of the selling price, the same way Reports works it out
+const marginOf = (p) => {
+  const price = Number(p.price || 0);
+  if (!price || p.cost_price == null) return null;
+  return Math.round(((price - Number(p.cost_price)) / price) * 1000) / 10;
+};
+const stockState = (stock) => {
+  if (stock === 0) return { label: "Out of stock", color: "error" };
+  if (stock <= 5) return { label: "Very low", color: "error" };
+  if (stock <= LOW_STOCK) return { label: "Low", color: "warning" };
+  return { label: "In stock", color: "success" };
+};
+const timeAgo = (iso) => {
+  if (!iso) return "never";
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
 };
 
+function IconBadge({ icon: Icon, color, size = 32 }) {
+  return (
+    <Box sx={{ width: size, height: size, borderRadius: 2, display: "grid", placeItems: "center", flexShrink: 0, bgcolor: alpha(color, 0.14), color }}>
+      <Icon sx={{ fontSize: Math.round(size * 0.55) }} />
+    </Box>
+  );
+}
+
+function StatTile({ label, value, note, icon, color, onClick, active }) {
+  return (
+    <Paper variant="outlined" onClick={onClick} sx={{
+      p: 1.5, height: "100%", borderRadius: 3, cursor: onClick ? "pointer" : "default",
+      borderColor: active ? color : alpha(color, 0.3), borderWidth: active ? 2 : 1,
+      backgroundImage: `linear-gradient(135deg, ${alpha(color, 0.08)} 0%, transparent 70%)`,
+    }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
+        <IconBadge icon={icon} color={color} size={30} />
+        <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</Typography>
+      </Box>
+      <Typography fontWeight={800} sx={{ fontSize: { xs: "1.15rem", sm: "1.35rem" }, overflowWrap: "anywhere" }}>{value}</Typography>
+      {note && <Typography variant="caption" color="text.secondary">{note}</Typography>}
+    </Paper>
+  );
+}
+
+function StockPill({ product }) {
+  const s = stockState(product.stock);
+  const pack = packOf(product);
+  return (
+    <Box sx={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end" }}>
+      <Chip size="small" color={s.color} variant={product.stock <= LOW_STOCK ? "filled" : "outlined"}
+        label={`${count(product.stock)} ${unitWord(product)}`} sx={{ fontWeight: 700 }} />
+      {pack > 0 && product.stock >= pack && (
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
+          ≈ {Math.floor(product.stock / pack)} carton{Math.floor(product.stock / pack) === 1 ? "" : "s"}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
 function ProductsPage() {
+  const theme = useTheme();
+  const navigate = useNavigate();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const { user } = useContext(AuthContext);
   const { hasFeature } = useStore();
-  const canWrite = user?.role === 'admin' || user?.role === 'manager';
-  const canBulkUpload = canWrite && hasFeature('bulk_upload');
+  const canWrite = user?.role === "admin" || user?.role === "manager";
+  const canBulkUpload = canWrite && hasFeature("bulk_upload");
 
   const [products, setProducts] = useState([]);
+  const [archived, setArchived] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [addModalOpen, setAddModalOpen] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
-  const [searchTerm, setSearchTerm] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [stockFilter, setStockFilter] = useState("all");
-  const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [viewedProduct, setViewedProduct] = useState(null);
-  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
+
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
+  const [view, setView] = useState("all"); // all | low | out | archived
+  const [sort, setSort] = useState("name");
+  const [shown, setShown] = useState(PAGE);
+  const [selected, setSelected] = useState([]);
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [editProduct, setEditProduct] = useState(null);
+  const [adjustProduct, setAdjustProduct] = useState(null);
+  const [detailsProduct, setDetailsProduct] = useState(null);
+  const [insights, setInsights] = useState(null);
+  const [countOpen, setCountOpen] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [menu, setMenu] = useState({ anchor: null, product: null });
+  const [toolsAnchor, setToolsAnchor] = useState(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadResults, setUploadResults] = useState(null);
   const fileInputRef = useRef(null);
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [searchInput, setSearchInput] = useState("");   // immediate (shown in input)
-  const [sortConfig, setSortConfig] = useState({ column: 'name', direction: 'asc' });
-  const [selected, setSelected] = useState([]);
 
-  // Debounce: update searchTerm 300ms after user stops typing
-  useEffect(() => {
-    const timer = setTimeout(() => { setSearchTerm(searchInput); setPage(0); }, 300);
-    return () => clearTimeout(timer);
-  }, [searchInput]);
+  const notify = (message, severity = "success") => setSnackbar({ open: true, message, severity });
 
-  useEffect(() => {
-    fetchProducts();
-    fetchCategories();
-  }, []);
-
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await axiosInstance.get("products/");
-      setProducts(response.data);
+      const requests = [axiosInstance.get("products/")];
+      if (canWrite) requests.push(axiosInstance.get("products/", { params: { archived: 1 } }).catch(() => ({ data: [] })));
+      const [active, old] = await Promise.all(requests);
+      setProducts(active.data);
+      setArchived(old?.data || []);
     } catch (err) {
-      console.error("Failed to load products:", err);
-      showSnackbar("Failed to load products", "error");
+      notify(err.response ? "Failed to load products" : "No connection. Products need the internet.", "error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [canWrite]);
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(() => axiosInstance.get("categories/").then((r) => setCategories(r.data)).catch(() => {}), []);
+
+  useEffect(() => { fetchProducts(); fetchCategories(); }, [fetchProducts, fetchCategories]);
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput.trim().toLowerCase()); setShown(PAGE); }, 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+  useEffect(() => { setShown(PAGE); setSelected([]); }, [category, view, sort]);
+
+  // ── Numbers and the visible list ─────────────────────────────────────────
+  const stats = useMemo(() => ({
+    total: products.length,
+    low: products.filter((p) => p.stock > 0 && p.stock <= LOW_STOCK).length,
+    out: products.filter((p) => p.stock === 0).length,
+    value: products.reduce((s, p) => s + p.stock * Number(p.cost_price || 0), 0),
+  }), [products]);
+
+  const list = useMemo(() => {
+    const source = view === "archived" ? archived : products;
+    const rows = source.filter((p) => {
+      if (search && !p.name.toLowerCase().includes(search) && !String(p.barcode).toLowerCase().includes(search)) return false;
+      if (category !== "all" && String(p.category?.id) !== category) return false;
+      if (view === "low") return p.stock > 0 && p.stock <= LOW_STOCK;
+      if (view === "out") return p.stock === 0;
+      return true;
+    });
+    const by = {
+      name: (a, b) => a.name.localeCompare(b.name),
+      stock: (a, b) => a.stock - b.stock || a.name.localeCompare(b.name),
+      price: (a, b) => Number(b.price) - Number(a.price),
+      margin: (a, b) => (marginOf(a) ?? 0) - (marginOf(b) ?? 0),
+    }[sort];
+    return [...rows].sort(by);
+  }, [products, archived, view, search, category, sort]);
+  const visible = list.slice(0, shown);
+
+  // ── Actions ──────────────────────────────────────────────────────────────
+  const archive = async (product, restore = false) => {
     try {
-      const response = await axiosInstance.get("categories/");
-      setCategories(response.data);
-    } catch (err) {
-      console.error("Failed to load categories:", err);
-      showSnackbar("Failed to load categories", "error");
-    }
-  };
-
-  const showSnackbar = (message, severity = "success") => {
-    setSnackbar({ open: true, message, severity });
-  };
-
-  const handleDeleteProduct = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this product?")) return;
-
-    try {
-      await axiosInstance.delete(`products/${id}/`);
+      await axiosInstance.post(`products/${product.id}/${restore ? "restore" : "archive"}/`);
+      notify(restore ? `${product.name} is back in the till` : `${product.name} archived. Its sales history is kept.`);
       fetchProducts();
-      showSnackbar("Product deleted successfully");
-    } catch (err) {
-      console.error("Delete failed:", err);
-      showSnackbar("Failed to delete product", "error");
+    } catch {
+      notify("Could not update the product", "error");
     }
   };
 
-  const handleViewProduct = (product) => {
-    setViewedProduct(product);
-    setViewDialogOpen(true);
+  const remove = async (product) => {
+    if (!window.confirm(`Delete "${product.name}" for good?`)) return;
+    try {
+      await axiosInstance.delete(`products/${product.id}/`);
+      notify("Product deleted");
+      fetchProducts();
+    } catch (err) {
+      if (err.response?.data?.can_archive) {
+        if (window.confirm(`"${product.name}" has sales history, so it can't be deleted.\n\nArchive it instead? It will leave the till and lists but its history is kept.`)) {
+          archive(product);
+        }
+      } else {
+        notify(err.response?.data?.error || "Could not delete the product", "error");
+      }
+    }
   };
 
-  const handleDownloadTemplate = async () => {
+  const bulkArchive = async () => {
+    if (!window.confirm(`Archive ${selected.length} product(s)? They leave the till but keep their history.`)) return;
+    const results = await Promise.allSettled(selected.map((id) => axiosInstance.post(`products/${id}/archive/`)));
+    const ok = results.filter((r) => r.status === "fulfilled").length;
+    notify(`${ok} product(s) archived`, ok === selected.length ? "success" : "warning");
+    setSelected([]);
+    fetchProducts();
+  };
+
+  const openDetails = async (product) => {
+    setDetailsProduct(product);
+    setInsights(null);
+    if (!canWrite) return;
     try {
-      const response = await axiosInstance.get('products/download-template/', { responseType: 'blob' });
-      const url = URL.createObjectURL(new Blob([response.data]));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'product_upload_template.xlsx';
-      a.click();
-      URL.revokeObjectURL(url);
+      const res = await axiosInstance.get(`products/${product.id}/insights/`);
+      setInsights(res.data);
     } catch {
-      showSnackbar('Failed to download template', 'error');
+      setInsights({ failed: true });
+    }
+  };
+
+  const downloadFile = async (url, name) => {
+    try {
+      const res = await axiosInstance.get(url, { responseType: "blob" });
+      const href = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(href);
+    } catch {
+      notify("Download failed", "error");
     }
   };
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    e.target.value = '';
+    e.target.value = "";
     setUploading(true);
     setUploadResults(null);
-    setUploadDialogOpen(true);
+    setUploadOpen(true);
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append("file", file);
     try {
-      const res = await axiosInstance.post('products/bulk-upload/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await axiosInstance.post("products/bulk-upload/", formData, { headers: { "Content-Type": "multipart/form-data" } });
       setUploadResults(res.data);
       fetchProducts();
+      fetchCategories();
     } catch (err) {
-      setUploadResults({ error: err.response?.data?.error || 'Upload failed' });
+      setUploadResults(err.response?.data?.errors ? err.response.data : { error: err.response?.data?.error || "Upload failed" });
     } finally {
       setUploading(false);
     }
   };
 
-  const handleSort = (column) => {
-    setSortConfig(prev => ({
-      column,
-      direction: prev.column === column && prev.direction === 'asc' ? 'desc' : 'asc',
-    }));
-  };
-
-  const handleSelectAll = (e) => {
-    setSelected(e.target.checked ? paginatedProducts.map(p => p.id) : []);
-  };
-
-  const handleSelectOne = (id) => {
-    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
-
-  const handleBulkDelete = async () => {
-    if (!window.confirm(`Permanently delete ${selected.length} product(s)? This cannot be undone.`)) return;
-
-    const results = await Promise.allSettled(
-      selected.map(id => axiosInstance.delete(`products/${id}/`))
-    );
-
-    const succeeded = results.filter(r => r.status === 'fulfilled').length;
-    const failed = results.filter(r => r.status === 'rejected');
-
-    setSelected([]);
+  const afterStockChange = (message) => {
+    notify(message);
     fetchProducts();
-
-    if (failed.length === 0) {
-      showSnackbar(`${succeeded} product(s) deleted successfully`);
-    } else if (succeeded === 0) {
-      const reason = failed[0].reason?.response?.data?.error || 'Products could not be deleted';
-      showSnackbar(reason, 'error');
-    } else {
-      showSnackbar(
-        `${succeeded} deleted. ${failed.length} could not be deleted (they have sales history).`,
-        'warning'
-      );
-    }
+    if (detailsProduct) setDetailsProduct(null);
   };
 
-  // Inventory Analytics
-  const getInventoryStats = () => {
-    const totalProducts = products.length;
-    const lowStockProducts = products.filter(p => p.stock <= 10).length;
-    const outOfStockProducts = products.filter(p => p.stock === 0).length;
-    const totalInventoryValue = products.reduce((sum, p) => sum + (p.stock * parseFloat(p.cost_price || 0)), 0);
+  const menuItems = (p) => (view === "archived" ? [
+    { label: "Restore to till", icon: RestoreIcon, run: () => archive(p, true) },
+    { label: "Delete", icon: DeleteIcon, run: () => remove(p), danger: true },
+  ] : [
+    { label: "View details", icon: ViewIcon, run: () => openDetails(p) },
+    ...(canWrite ? [
+      { label: "Edit details & prices", icon: EditIcon, run: () => setEditProduct(p) },
+      { label: "Restock", icon: RestockIcon, run: () => navigate(`/restock?product=${p.id}`) },
+      { label: "Adjust stock", icon: AdjustIcon, run: () => setAdjustProduct(p) },
+      { label: "Archive", icon: ArchiveIcon, run: () => archive(p) },
+      { label: "Delete", icon: DeleteIcon, run: () => remove(p), danger: true },
+    ] : []),
+  ]);
 
-    return {
-      totalProducts,
-      lowStockProducts,
-      outOfStockProducts,
-      totalInventoryValue
-    };
-  };
+  const openMenu = (e, product) => { e.stopPropagation(); setMenu({ anchor: e.currentTarget, product }); };
 
-  const getStockStatus = (stock) => {
-    if (stock === 0) return { label: "Out of Stock", color: "error", icon: <WarningIcon /> };
-    if (stock <= 5) return { label: "Very Low", color: "error", icon: <WarningIcon /> };
-    if (stock <= 10) return { label: "Low", color: "warning", icon: <LowStockIcon /> };
-    if (stock <= 20) return { label: "Medium", color: "info", icon: <InventoryIcon /> };
-    return { label: "In Stock", color: "success", icon: <InventoryIcon /> };
-  };
-
-  const getProfitMargin = (product) => {
-    const cost = parseFloat(product.cost_price || 0);
-    const price = parseFloat(product.price || 0);
-    if (cost === 0) return 0;
-    return ((price - cost) / cost * 100).toFixed(1);
-  };
-
-  const filteredProducts = products.filter(product => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.barcode?.toString().includes(searchTerm);
-    const matchesCategory = categoryFilter === "all" || product.category?.id.toString() === categoryFilter;
-    const matchesStock = stockFilter === "all" ||
-      (stockFilter === "low" && product.stock <= 10) ||
-      (stockFilter === "out" && product.stock === 0) ||
-      (stockFilter === "healthy" && product.stock > 10);
-    return matchesSearch && matchesCategory && matchesStock;
-  });
-
-  const sortedProducts = [...filteredProducts].sort((a, b) => {
-    const dir = sortConfig.direction === 'asc' ? 1 : -1;
-    switch (sortConfig.column) {
-      case 'name':     return a.name.localeCompare(b.name) * dir;
-      case 'price':    return (parseFloat(a.price) - parseFloat(b.price)) * dir;
-      case 'stock':    return (a.stock - b.stock) * dir;
-      case 'cost':     return (parseFloat(a.cost_price) - parseFloat(b.cost_price)) * dir;
-      case 'margin':   return (parseFloat(getProfitMargin(a)) - parseFloat(getProfitMargin(b))) * dir;
-      default:         return 0;
-    }
-  });
-
-  const paginatedProducts = sortedProducts.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-
-  const stats = getInventoryStats();
-
-  // Quick Stats Cards
-  const StatCard = ({ title, value, subtitle, icon, color, trend }) => (
-    <Card sx={{ height: '100%', transition: 'all 0.3s', '&:hover': { transform: 'translateY(-4px)' } }}>
-      <CardContent>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box>
-            <Typography color="textSecondary" gutterBottom variant="overline">
-              {title}
-            </Typography>
-            <Typography variant="h4" component="div" sx={{ fontWeight: 'bold', color }}>
-              {value}
-            </Typography>
-            <Typography variant="body2" color="textSecondary">
-              {subtitle}
-            </Typography>
-          </Box>
-          <Avatar sx={{ bgcolor: `${color}20`, color: color, width: 48, height: 48 }}>
-            {icon}
-          </Avatar>
-        </Box>
-      </CardContent>
-    </Card>
+  // ── Rendering pieces ─────────────────────────────────────────────────────
+  const productAvatar = (p) => (
+    <Avatar variant="rounded" sx={{ width: 38, height: 38, fontWeight: 700, fontSize: 15, background: BRAND_GRADIENT }}>
+      {p.name.charAt(0).toUpperCase()}
+    </Avatar>
   );
 
+  const card = (p) => {
+    const margin = marginOf(p);
+    const pack = packOf(p);
+    return (
+      <Paper key={p.id} variant="outlined" onClick={() => openDetails(p)} sx={{
+        p: 1.25, mb: 1, borderRadius: 3, cursor: "pointer", display: "flex", gap: 1.25, alignItems: "center",
+        borderLeft: 4, borderLeftColor: `${stockState(p.stock).color}.main`,
+      }}>
+        {productAvatar(p)}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="body2" fontWeight={700} noWrap>{p.name}</Typography>
+          <Typography variant="caption" color="text.secondary" component="div" noWrap>
+            {p.category?.name || "Uncategorized"}{pack ? ` · carton of ${pack}` : ""}
+          </Typography>
+          <Box sx={{ display: "flex", gap: 1, alignItems: "baseline", flexWrap: "wrap" }}>
+            <Typography variant="body2" fontWeight={800} color="primary">{naira(p.price)}</Typography>
+            {margin !== null && <Typography variant="caption" color={margin < 10 ? "error.main" : "text.secondary"}>{margin}% margin</Typography>}
+          </Box>
+        </Box>
+        <StockPill product={p} />
+        <IconButton size="small" onClick={(e) => openMenu(e, p)}><MoreIcon /></IconButton>
+      </Paper>
+    );
+  };
+
+  const table = (
+    <TableContainer>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            {canWrite && view !== "archived" && (
+              <TableCell padding="checkbox">
+                <Checkbox size="small" checked={visible.length > 0 && selected.length === visible.length}
+                  indeterminate={selected.length > 0 && selected.length < visible.length}
+                  onChange={(e) => setSelected(e.target.checked ? visible.map((p) => p.id) : [])} />
+              </TableCell>
+            )}
+            <TableCell>Product</TableCell>
+            <TableCell>Category</TableCell>
+            <TableCell align="right">Price</TableCell>
+            {canWrite && <TableCell align="right">Cost</TableCell>}
+            {canWrite && <TableCell align="right">Margin</TableCell>}
+            <TableCell align="right">Stock</TableCell>
+            <TableCell align="right" />
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {visible.map((p) => {
+            const margin = marginOf(p);
+            return (
+              <TableRow key={p.id} hover selected={selected.includes(p.id)} sx={{ cursor: "pointer" }} onClick={() => openDetails(p)}>
+                {canWrite && view !== "archived" && (
+                  <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox size="small" checked={selected.includes(p.id)}
+                      onChange={() => setSelected((prev) => (prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id]))} />
+                  </TableCell>
+                )}
+                <TableCell>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                    {productAvatar(p)}
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={700}>{p.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {p.barcode}{packOf(p) ? ` · carton of ${packOf(p)}` : ""}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </TableCell>
+                <TableCell><Chip size="small" variant="outlined" label={p.category?.name || "Uncategorized"} /></TableCell>
+                <TableCell align="right" sx={{ fontWeight: 800, color: "primary.main", whiteSpace: "nowrap" }}>{naira(p.price, 2)}</TableCell>
+                {canWrite && <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>{naira(p.cost_price, 2)}</TableCell>}
+                {canWrite && (
+                  <TableCell align="right">
+                    {margin !== null && <Chip size="small" variant="outlined" label={`${margin}%`}
+                      color={margin >= 20 ? "success" : margin >= 10 ? "warning" : "error"} />}
+                  </TableCell>
+                )}
+                <TableCell align="right"><StockPill product={p} /></TableCell>
+                <TableCell align="right" onClick={(e) => e.stopPropagation()} sx={{ whiteSpace: "nowrap" }}>
+                  {canWrite && view !== "archived" && (
+                    <>
+                      <Tooltip title="Restock"><IconButton size="small" color="primary" onClick={() => navigate(`/restock?product=${p.id}`)}><RestockIcon fontSize="small" /></IconButton></Tooltip>
+                      <Tooltip title="Adjust stock"><IconButton size="small" onClick={() => setAdjustProduct(p)}><AdjustIcon fontSize="small" /></IconButton></Tooltip>
+                      <Tooltip title="Edit"><IconButton size="small" onClick={() => setEditProduct(p)}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                    </>
+                  )}
+                  <IconButton size="small" onClick={(e) => openMenu(e, p)}><MoreIcon fontSize="small" /></IconButton>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+
+  const d = detailsProduct;
+  const dMargin = d ? marginOf(d) : null;
+
   return (
-    <Container maxWidth="xl" sx={{ mt: { xs: 2, md: 4 }, mb: 4, px: { xs: 1, md: 3 } }}>
+    <Box sx={{ p: { xs: 1.5, sm: 2, md: 3 }, maxWidth: 1400, mx: "auto" }}>
       {/* Header */}
-      <Box sx={{ mb: { xs: 2, md: 4 } }}>
-        <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main', fontSize: { xs: '1.2rem', md: '1.5rem' } }}>
-          Inventory Management
-        </Typography>
-        <Typography variant="body2" color="textSecondary">
-          Manage your products, track stock levels, and monitor inventory health
-        </Typography>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1, mb: 2, flexWrap: "wrap" }}>
+        <Box>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: 2.5, display: "grid", placeItems: "center", background: BRAND_GRADIENT, color: "#fff" }}>
+              <InventoryIcon fontSize="small" />
+            </Box>
+            <Typography variant="h5" fontWeight={800} sx={{ fontSize: { xs: "1.3rem", md: "1.6rem" } }}>Products</Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Your items, prices and stock levels.</Typography>
+        </Box>
+        {canWrite && (
+          <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" }, "& .MuiButton-root": { flex: { xs: 1, sm: "none" }, px: { xs: 1, sm: 2 }, whiteSpace: "nowrap" } }}>
+            <Button variant="outlined" startIcon={<CountIcon />} onClick={() => setCountOpen(true)}>Count</Button>
+            <Button variant="outlined" startIcon={<MoreIcon />} onClick={(e) => setToolsAnchor(e.currentTarget)}>More</Button>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)} sx={{ background: BRAND_GRADIENT }}>Add</Button>
+          </Box>
+        )}
       </Box>
 
-      {/* Statistics Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard
-            title="TOTAL PRODUCTS"
-            value={stats.totalProducts}
-            subtitle="In inventory"
-            icon={<InventoryIcon />}
-            color="#1976d2"
-          />
+      {/* Headline numbers; tap one to filter */}
+      <Grid container spacing={1.5} sx={{ mb: 2 }}>
+        <Grid size={{ xs: 6, md: 3 }}>
+          <StatTile label="Products" value={count(stats.total)} note={`${categories.length} categories`} icon={InventoryIcon}
+            color={theme.palette.primary.main} onClick={() => setView("all")} active={view === "all"} />
         </Grid>
-        <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard
-            title="LOW STOCK"
-            value={stats.lowStockProducts}
-            subtitle="Need attention"
-            icon={<WarningIcon />}
-            color="#ed6c02"
-          />
+        <Grid size={{ xs: 6, md: 3 }}>
+          <StatTile label="Low stock" value={count(stats.low)} note={`${LOW_STOCK} or fewer left`} icon={WarningIcon}
+            color={theme.palette.warning.main} onClick={() => setView("low")} active={view === "low"} />
         </Grid>
-        <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard
-            title="OUT OF STOCK"
-            value={stats.outOfStockProducts}
-            subtitle="Urgent restock"
-            icon={<WarningIcon />}
-            color="#d32f2f"
-          />
+        <Grid size={{ xs: 6, md: 3 }}>
+          <StatTile label="Out of stock" value={count(stats.out)} note="Tap to see them" icon={OutIcon}
+            color={theme.palette.error.main} onClick={() => setView("out")} active={view === "out"} />
         </Grid>
-        <Grid item size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard
-            title="INVENTORY VALUE"
-            value={formatCurrency(stats.totalInventoryValue)}
-            subtitle="Total cost value"
-            icon={<TrendingUpIcon />}
-            color="#2e7d32"
-          />
+        <Grid size={{ xs: 6, md: 3 }}>
+          {canWrite ? (
+            <StatTile label="Stock value" value={naira(stats.value)} note="At cost price" icon={ValueIcon} color={theme.palette.success.main} />
+          ) : (
+            <StatTile label="In stock" value={count(stats.total - stats.out)} note="products available" icon={CheckIcon} color={theme.palette.success.main} />
+          )}
         </Grid>
       </Grid>
 
-      {/* Action Bar */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item size={{ xs: 12, md: 4 }}>
-              <TextField
-                fullWidth
-                placeholder="Search products by name or barcode..."
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                InputProps={{
-                  startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                }}
-              />
-            </Grid>
-            <Grid item size={{ xs: 12, md: 2 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Category</InputLabel>
-                <Select
-                  value={categoryFilter}
-                  onChange={(e) => { setCategoryFilter(e.target.value); setPage(0); }}
-                  label="Category"
-                >
-                  <MenuItem value="all">All Categories</MenuItem>
-                  {categories.map(category => (
-                    <MenuItem key={category.id} value={category.id.toString()}>
-                      {category.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item size={{ xs: 12, md: 2 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Stock Status</InputLabel>
-                <Select
-                  value={stockFilter}
-                  onChange={(e) => { setStockFilter(e.target.value); setPage(0); }}
-                  label="Stock Status"
-                >
-                  <MenuItem value="all">All Stock</MenuItem>
-                  <MenuItem value="healthy">Healthy</MenuItem>
-                  <MenuItem value="low">Low Stock</MenuItem>
-                  <MenuItem value="out">Out of Stock</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item size={{ xs: 12, md: 4 }} sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              {canWrite && (
-                <>
-                  <Button variant="outlined" startIcon={<CategoryIcon />} onClick={() => setCategoryModalOpen(true)}>
-                    Categories
-                  </Button>
-                  {canBulkUpload && (
-                    <>
-                      <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleDownloadTemplate}>
-                        Template
-                      </Button>
-                      <Button variant="outlined" startIcon={<UploadIcon />} onClick={() => fileInputRef.current?.click()}>
-                        Upload Excel
-                      </Button>
-                      <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileUpload} />
-                    </>
-                  )}
-                  <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddModalOpen(true)} sx={{ borderRadius: 2 }}>
-                    Add Product
-                  </Button>
-                </>
-              )}
-            </Grid>
-          </Grid>
+      {/* Search and filters */}
+      <Card sx={{ mb: 2 }}>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2 }, "&:last-child": { pb: { xs: 1.5, sm: 2 } } }}>
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            <TextField size="small" placeholder="Search name or barcode" value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
+              sx={{ flex: "3 1 220px" }}
+              InputProps={{
+                startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
+                endAdornment: (
+                  <InputAdornment position="end">
+                    {searchInput && <IconButton size="small" onClick={() => setSearchInput("")}><CloseIcon fontSize="small" /></IconButton>}
+                    <Tooltip title="Scan barcode"><IconButton size="small" color="primary" onClick={() => setScanOpen(true)}><ScanIcon fontSize="small" /></IconButton></Tooltip>
+                  </InputAdornment>
+                ),
+              }} />
+            <TextField select size="small" value={category} onChange={(e) => setCategory(e.target.value)} sx={{ flex: "1 1 150px" }}>
+              <MenuItem value="all">All categories</MenuItem>
+              {categories.map((c) => <MenuItem key={c.id} value={String(c.id)}>{c.name}</MenuItem>)}
+            </TextField>
+            <TextField select size="small" value={sort} onChange={(e) => setSort(e.target.value)} sx={{ flex: "1 1 150px" }}>
+              <MenuItem value="name">Sort: Name</MenuItem>
+              <MenuItem value="stock">Sort: Lowest stock</MenuItem>
+              <MenuItem value="price">Sort: Highest price</MenuItem>
+              {canWrite && <MenuItem value="margin">Sort: Lowest margin</MenuItem>}
+            </TextField>
+          </Box>
+          <Box sx={{ display: "flex", gap: 1, mt: 1.25, overflowX: "auto", "&::-webkit-scrollbar": { display: "none" } }}>
+            {[["all", `All (${count(stats.total)})`], ["low", `Low (${stats.low})`], ["out", `Out (${stats.out})`],
+              ...(canWrite ? [["archived", `Archived (${archived.length})`]] : [])].map(([k, label]) => (
+              <Chip key={k} label={label} onClick={() => setView(k)} color={view === k ? "primary" : "default"}
+                variant={view === k ? "filled" : "outlined"} sx={{ fontWeight: 600, flexShrink: 0 }} />
+            ))}
+          </Box>
         </CardContent>
       </Card>
 
-      {/* Products Table */}
+      {/* The list */}
       <Card>
-        <CardContent sx={{ p: 0 }}>
-          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <InventoryIcon color="primary" />
-              Products ({filteredProducts.length} items)
-              {selected.length > 0 && (
-                <Chip label={`${selected.length} selected`} size="small" color="primary" sx={{ ml: 1 }} />
-              )}
+        <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5, gap: 1, flexWrap: "wrap" }}>
+            <Typography variant="subtitle1" fontWeight={700}>
+              {view === "archived" ? "Archived products" : "Products"} ({count(list.length)})
             </Typography>
-            {canWrite && selected.length > 0 && (
-              <Button
-                variant="contained"
-                color="error"
-                size="small"
-                startIcon={<BulkDeleteIcon />}
-                onClick={handleBulkDelete}
-              >
-                Delete {selected.length} Selected
+            {selected.length > 0 && (
+              <Button size="small" color="warning" variant="contained" startIcon={<ArchiveIcon />} onClick={bulkArchive}>
+                Archive {selected.length} selected
               </Button>
             )}
           </Box>
-
+          {view === "archived" && (
+            <Alert severity="info" sx={{ mb: 1.5 }}>Archived products aren't sold or counted. Their sales history stays in Reports.</Alert>
+          )}
           {loading ? (
-            <Box sx={{ p: 4, textAlign: 'center' }}>
-              <Typography>Loading products...</Typography>
+            <Box sx={{ textAlign: "center", py: 6 }}><CircularProgress /></Box>
+          ) : list.length === 0 ? (
+            <Box sx={{ textAlign: "center", py: 6 }}>
+              <InventoryIcon sx={{ fontSize: 56, color: "text.disabled" }} />
+              <Typography color="text.secondary" sx={{ mt: 1 }}>
+                {search || category !== "all" || view !== "all" ? "No products match." : "No products yet."}
+              </Typography>
+              {canWrite && view === "all" && !search && (
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)} sx={{ mt: 2 }}>Add your first product</Button>
+              )}
             </Box>
           ) : (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ bgcolor: 'primary.main' }}>
-                    {canWrite && (
-                      <TableCell padding="checkbox" sx={{ bgcolor: 'primary.main', display: { xs: 'none', sm: 'table-cell' } }}>
-                        <Checkbox
-                          size="small"
-                          sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }}
-                          indeterminate={selected.length > 0 && selected.length < paginatedProducts.length}
-                          checked={paginatedProducts.length > 0 && selected.length === paginatedProducts.length}
-                          onChange={handleSelectAll}
-                        />
-                      </TableCell>
-                    )}
-                    {[
-                      { id: 'name',   label: 'Product',  align: 'left',   hide: false },
-                      { id: null,     label: 'Category', align: 'left',   hide: 'xs'  },
-                      { id: 'price',  label: 'Price',    align: 'right',  hide: false },
-                      { id: 'stock',  label: 'Stock',    align: 'center', hide: 'xs'  },
-                      { id: 'cost',   label: 'Cost',     align: 'right',  hide: 'xs'  },
-                      { id: 'margin', label: 'Margin',   align: 'right',  hide: 'xs'  },
-                      { id: null,     label: 'Actions',  align: 'center', hide: false },
-                    ].map(({ id, label, align, hide }) => (
-                      <TableCell
-                        key={label}
-                        align={align}
-                        onClick={id ? () => handleSort(id) : undefined}
-                        sx={{
-                          color: 'white', fontWeight: 'bold',
-                          cursor: id ? 'pointer' : 'default',
-                          userSelect: 'none',
-                          '&:hover': id ? { bgcolor: 'primary.dark' } : {},
-                          whiteSpace: 'nowrap',
-                          ...(hide === 'xs' && { display: { xs: 'none', sm: 'table-cell' } }),
-                        }}
-                      >
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                          {label}
-                          {id && (sortConfig.column === id
-                            ? (sortConfig.direction === 'asc' ? <AscIcon fontSize="small" /> : <DescIcon fontSize="small" />)
-                            : <UnsortedIcon fontSize="small" sx={{ opacity: 0.5 }} />
-                          )}
-                        </Box>
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {paginatedProducts.map((product) => {
-                    const stockStatus = getStockStatus(product.stock);
-                    const profitMargin = getProfitMargin(product);
-
-                    return (
-                      <TableRow
-                        key={product.id}
-                        hover
-                        selected={selected.includes(product.id)}
-                        sx={{
-                          bgcolor: product.stock === 0 ? 'error.light' :
-                            product.stock <= 5 ? 'warning.light' : 'inherit'
-                        }}
-                      >
-                        {canWrite && (
-                          <TableCell padding="checkbox" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-                            <Checkbox
-                              size="small"
-                              checked={selected.includes(product.id)}
-                              onChange={() => handleSelectOne(product.id)}
-                            />
-                          </TableCell>
-                        )}
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32, fontSize: '0.85rem' }}>
-                              {product.name.charAt(0).toUpperCase()}
-                            </Avatar>
-                            <Box>
-                              <Typography variant="body2" fontWeight="medium">
-                                {product.name}
-                              </Typography>
-                              {product.barcode && (
-                                <Typography variant="caption" color="textSecondary">
-                                  {product.barcode}
-                                </Typography>
-                              )}
-                            </Box>
-                          </Box>
-                        </TableCell>
-                        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-                          <Chip
-                            label={product.category?.name || 'Uncategorized'}
-                            size="small"
-                            variant="outlined"
-                            icon={<CategoryIcon />}
-                          />
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography variant="body2" fontWeight="bold" color="primary">
-                            {formatCurrency(product.price)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="center" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Tooltip title={stockStatus.label}>
-                              {stockStatus.icon}
-                            </Tooltip>
-                            <Box sx={{ flexGrow: 1 }}>
-                              <LinearProgress
-                                variant="determinate"
-                                value={Math.min((product.stock / 50) * 100, 100)}
-                                color={stockStatus.color}
-                                sx={{ height: 8, borderRadius: 4 }}
-                              />
-                              <Typography variant="body2" color="textSecondary">
-                                {product.stock} units
-                              </Typography>
-                            </Box>
-                          </Box>
-                        </TableCell>
-                        <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-                          <Typography variant="body2">
-                            {formatCurrency(product.cost_price)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-                          <Chip
-                            label={`${profitMargin}%`}
-                            size="small"
-                            color={profitMargin > 30 ? "success" : profitMargin > 15 ? "warning" : "error"}
-                            variant="outlined"
-                          />
-                        </TableCell>
-                        <TableCell align="center">
-                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                            <Tooltip title="View Details">
-                              <IconButton
-                                size="small"
-                                color="info"
-                                onClick={() => handleViewProduct(product)}
-                              >
-                                <ViewIcon />
-                              </IconButton>
-                            </Tooltip>
-                            {canWrite && (
-                              <>
-                                <Tooltip title="Edit Product">
-                                  <IconButton
-                                    size="small"
-                                    color="primary"
-                                    onClick={() => {
-                                      setSelectedProduct(product);
-                                      setEditModalOpen(true);
-                                    }}
-                                  >
-                                    <EditIcon />
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="Delete Product">
-                                  <IconButton
-                                    size="small"
-                                    color="error"
-                                    onClick={() => handleDeleteProduct(product.id)}
-                                  >
-                                    <DeleteIcon />
-                                  </IconButton>
-                                </Tooltip>
-                              </>
-                            )}
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-
-          {!loading && filteredProducts.length > 0 && (
-            <TablePagination
-              component="div"
-              count={filteredProducts.length}
-              page={page}
-              onPageChange={(_, newPage) => setPage(newPage)}
-              rowsPerPage={rowsPerPage}
-              onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
-              rowsPerPageOptions={[10, 25, 50, 100]}
-              labelDisplayedRows={({ from, to, count }) => `${from}–${to} of ${count} products`}
-              sx={{ borderTop: 1, borderColor: 'divider' }}
-            />
-          )}
-
-          {!loading && filteredProducts.length === 0 && (
-            <Box sx={{ p: 4, textAlign: 'center' }}>
-              <InventoryIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="h6" color="textSecondary">
-                No products found
-              </Typography>
-              <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                {searchTerm || categoryFilter !== "all" || stockFilter !== "all"
-                  ? "Try adjusting your filters"
-                  : "Get started by adding your first product"}
-              </Typography>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setAddModalOpen(true)}
-              >
-                Add First Product
-              </Button>
-            </Box>
+            <>
+              {isDesktop ? table : visible.map(card)}
+              {shown < list.length && (
+                <Button fullWidth onClick={() => setShown((n) => n + PAGE)} sx={{ mt: 1 }}>
+                  Show more ({count(list.length - shown)} left)
+                </Button>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
 
-      {/* Product Detail Dialog */}
-      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <InventoryIcon color="primary" />
-            Product Details
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          {viewedProduct && (
-            <Grid container spacing={3} sx={{ mt: 1 }}>
-              <Grid item size={{ xs: 12, md: 6 }}>
-                <Typography variant="h6" gutterBottom>Basic Information</Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <Box>
-                    <Typography variant="caption" color="textSecondary">Product Name</Typography>
-                    <Typography variant="body1" fontWeight="medium">{viewedProduct.name}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="textSecondary">Category</Typography>
-                    <Typography variant="body1">{viewedProduct.category?.name || 'Uncategorized'}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="textSecondary">Barcode</Typography>
-                    <Typography variant="body1">{viewedProduct.barcode || 'Not set'}</Typography>
-                  </Box>
-                </Box>
+      {/* Per-product menu */}
+      <Menu anchorEl={menu.anchor} open={Boolean(menu.anchor)} onClose={() => setMenu({ anchor: null, product: null })}>
+        {menu.product && menuItems(menu.product).map((item) => (
+          <MenuItem key={item.label} onClick={() => { const p = menu.product; setMenu({ anchor: null, product: null }); item.run(p); }}
+            sx={item.danger ? { color: "error.main" } : undefined}>
+            <ListItemIcon sx={item.danger ? { color: "error.main" } : undefined}><item.icon fontSize="small" /></ListItemIcon>
+            {item.label}
+          </MenuItem>
+        ))}
+      </Menu>
+
+      {/* Tools menu */}
+      <Menu anchorEl={toolsAnchor} open={Boolean(toolsAnchor)} onClose={() => setToolsAnchor(null)}>
+        <MenuItem onClick={() => { setToolsAnchor(null); setCategoryOpen(true); }}>
+          <ListItemIcon><CategoryIcon fontSize="small" /></ListItemIcon>Categories
+        </MenuItem>
+        <MenuItem onClick={() => { setToolsAnchor(null); downloadFile("products/count-sheet/", `stock_count_${new Date().toLocaleDateString("en-CA")}.xlsx`); }}>
+          <ListItemIcon><CountIcon fontSize="small" /></ListItemIcon>Download count sheet
+        </MenuItem>
+        {canBulkUpload && <Divider />}
+        {canBulkUpload && (
+          <MenuItem onClick={() => { setToolsAnchor(null); downloadFile("products/download-template/", "product_upload_template.xlsx"); }}>
+            <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>Excel template
+          </MenuItem>
+        )}
+        {canBulkUpload && (
+          <MenuItem onClick={() => { setToolsAnchor(null); fileInputRef.current?.click(); }}>
+            <ListItemIcon><UploadIcon fontSize="small" /></ListItemIcon>Upload Excel
+          </MenuItem>
+        )}
+      </Menu>
+      <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={handleFileUpload} />
+
+      {/* Product details */}
+      <Dialog open={Boolean(d)} onClose={() => setDetailsProduct(null)} maxWidth="sm" fullWidth>
+        {d && (
+          <>
+            <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1.5, pb: 1 }}>
+              {productAvatar(d)}
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography fontWeight={800} noWrap>{d.name}</Typography>
+                <Typography variant="caption" color="text.secondary">{d.category?.name || "Uncategorized"} · {d.barcode}</Typography>
+              </Box>
+              <IconButton onClick={() => setDetailsProduct(null)}><CloseIcon /></IconButton>
+            </DialogTitle>
+            <DialogContent dividers>
+              <Grid container spacing={1.5} sx={{ mb: 2 }}>
+                {[
+                  ["Selling price", naira(d.price, 2)],
+                  ...(packOf(d) ? [["Carton", `${packOf(d)} for ${naira(d.bulk_price)}`]] : []),
+                  ...(canWrite ? [["Cost price", naira(d.cost_price, 2)], ["Margin", dMargin !== null ? `${dMargin}%` : "—"]] : []),
+                  ["In stock", `${count(d.stock)} ${unitWord(d)}`],
+                  ...(canWrite ? [["Stock value", naira(d.stock * Number(d.cost_price || 0))]] : []),
+                ].map(([k, v]) => (
+                  <Grid key={k} size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">{k}</Typography>
+                    <Typography fontWeight={700}>{v}</Typography>
+                  </Grid>
+                ))}
               </Grid>
 
-              <Grid item size={{ xs: 12, md: 6 }}>
-                <Typography variant="h6" gutterBottom>Pricing & Stock</Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <Box>
-                    <Typography variant="caption" color="textSecondary">Selling Price</Typography>
-                    <Typography variant="body1" fontWeight="bold" color="primary">
-                      {formatCurrency(viewedProduct.price)}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="textSecondary">Cost Price</Typography>
-                    <Typography variant="body1">
-                      {formatCurrency(viewedProduct.cost_price)}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="textSecondary">Stock Level</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Chip
-                        label={getStockStatus(viewedProduct.stock).label}
-                        color={getStockStatus(viewedProduct.stock).color}
-                        size="small"
-                      />
-                      <Typography variant="body1">{viewedProduct.stock} units</Typography>
-                    </Box>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="textSecondary">Profit Margin</Typography>
-                    <Typography variant="body1" color={getProfitMargin(viewedProduct) > 30 ? "success.main" : "warning.main"}>
-                      {getProfitMargin(viewedProduct)}%
-                    </Typography>
-                  </Box>
-                </Box>
-              </Grid>
-            </Grid>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
-          <Button
-            variant="contained"
-            onClick={() => {
-              setSelectedProduct(viewedProduct);
-              setViewDialogOpen(false);
-              setEditModalOpen(true);
-            }}
-          >
-            Edit Product
-          </Button>
-        </DialogActions>
+              {canWrite && (
+                insights === null ? (
+                  <Box sx={{ textAlign: "center", py: 2 }}><CircularProgress size={24} /></Box>
+                ) : insights.failed ? (
+                  <Alert severity="warning">Could not load sales details.</Alert>
+                ) : (
+                  <>
+                    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2, bgcolor: alpha(theme.palette.primary.main, 0.04) }}>
+                      <Grid container spacing={1}>
+                        {[
+                          ["Sold (30 days)", count(insights.sold_30d)],
+                          ["Sales (30 days)", naira(insights.revenue_30d)],
+                          ["Sells about", insights.daily >= 1 ? `${insights.daily}/day` : insights.daily > 0 ? `${Math.round(insights.daily * 7 * 10) / 10}/week` : "—"],
+                          ["Stock lasts", insights.days_left !== null ? `~${Math.max(Math.round(insights.days_left), insights.days_left < 1 ? 0 : 1)} days` : "—"],
+                        ].map(([k, v]) => (
+                          <Grid key={k} size={{ xs: 6, sm: 3 }}>
+                            <Typography variant="caption" color="text.secondary">{k}</Typography>
+                            <Typography variant="body2" fontWeight={700}>{v}</Typography>
+                          </Grid>
+                        ))}
+                      </Grid>
+                      <Typography variant="caption" color="text.secondary">Last sold {timeAgo(insights.last_sold)}</Typography>
+                    </Paper>
+
+                    {(insights.restocks.length > 0 || insights.adjustments.length > 0) && (
+                      <>
+                        <Typography variant="subtitle2" fontWeight={700} gutterBottom>Recent stock changes</Typography>
+                        <List dense disablePadding>
+                          {[
+                            ...insights.restocks.map((r) => ({ at: r.at, text: `Restocked +${count(r.quantity)}`, sub: `${r.by}${r.unit_cost != null ? ` · ${naira(r.unit_cost)} each` : ""}`, color: "success.main" })),
+                            ...insights.adjustments.map((a) => ({ at: a.at, text: `${a.reason_label} ${a.change > 0 ? "+" : ""}${count(a.change)}`, sub: `${a.by}${a.note ? ` · ${a.note}` : ""}`, color: a.change < 0 ? "error.main" : "info.main" })),
+                          ].sort((x, y) => (x.at < y.at ? 1 : -1)).slice(0, 8).map((e, i) => (
+                            <ListItem key={i} disableGutters divider>
+                              <ListItemText
+                                primary={<Typography variant="body2" fontWeight={700} color={e.color}>{e.text}</Typography>}
+                                secondary={`${new Date(e.at).toLocaleString("en-NG", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })} · ${e.sub}`} />
+                            </ListItem>
+                          ))}
+                        </List>
+                      </>
+                    )}
+                  </>
+                )
+              )}
+            </DialogContent>
+            {canWrite && (
+              <DialogActions sx={{ flexWrap: "wrap", gap: 1, p: 1.5 }}>
+                <Button startIcon={<AdjustIcon />} onClick={() => { setAdjustProduct(d); setDetailsProduct(null); }}>Adjust</Button>
+                <Button startIcon={<EditIcon />} onClick={() => { setEditProduct(d); setDetailsProduct(null); }}>Edit</Button>
+                <Button variant="contained" startIcon={<RestockIcon />} onClick={() => navigate(`/restock?product=${d.id}`)}>Restock</Button>
+              </DialogActions>
+            )}
+          </>
+        )}
       </Dialog>
 
-      {/* Modals */}
-      <AddProductModal
-        open={addModalOpen}
-        onClose={() => setAddModalOpen(false)}
-        onSuccess={() => {
-          fetchProducts();
-          showSnackbar("Product added successfully");
-        }}
-        onError={(reason) => showSnackbar(reason ? `Could not add product: ${reason}` : "Failed to add product", "error")}
-      />
+      {/* Dialogs */}
+      <AddProductModal open={addOpen} onClose={() => setAddOpen(false)}
+        onSuccess={() => { fetchProducts(); notify("Product added"); }}
+        onError={(reason) => notify(reason ? `Could not add product: ${reason}` : "Failed to add product", "error")} />
+      <EditProductModal open={Boolean(editProduct)} onClose={() => setEditProduct(null)} product={editProduct}
+        onSuccess={() => { fetchProducts(); notify("Product updated"); }}
+        onError={(reason) => notify(reason ? `Could not update product: ${reason}` : "Failed to update product", "error")} />
+      <StockAdjustDialog open={Boolean(adjustProduct)} product={adjustProduct} onClose={() => setAdjustProduct(null)} onDone={afterStockChange} />
+      <StockCountDialog open={countOpen} onClose={() => setCountOpen(false)} products={products} categories={categories} onDone={afterStockChange} />
+      <CategoryManagerModal open={categoryOpen} onClose={() => setCategoryOpen(false)} onSuccess={() => { fetchCategories(); fetchProducts(); }} />
+      <BarcodeScannerDialog open={scanOpen} onClose={() => setScanOpen(false)} title="Scan to find a product"
+        onDetected={(code) => { setScanOpen(false); setSearchInput(String(code)); setView("all"); }} />
 
-      <EditProductModal
-        open={editModalOpen}
-        onClose={() => setEditModalOpen(false)}
-        product={selectedProduct}
-        onSuccess={() => {
-          fetchProducts();
-          showSnackbar("Product updated successfully");
-        }}
-        onError={(reason) => showSnackbar(reason ? `Could not update product: ${reason}` : "Failed to update product", "error")}
-      />
-
-      <CategoryManagerModal
-        open={categoryModalOpen}
-        onClose={() => setCategoryModalOpen(false)}
-        onSuccess={() => {
-          fetchCategories(); // Refresh categories list
-          fetchProducts(); // Refresh products to show updated categories
-        }}
-      />
-
-      {/* Bulk Upload Results Dialog */}
-      <Dialog open={uploadDialogOpen} onClose={() => !uploading && setUploadDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Bulk Product Upload</DialogTitle>
+      {/* Excel upload results */}
+      <Dialog open={uploadOpen} onClose={() => !uploading && setUploadOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Bulk product upload</DialogTitle>
         <DialogContent>
           {uploading ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, gap: 2 }}>
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 4, gap: 2 }}>
               <CircularProgress />
               <Typography>Processing your file...</Typography>
             </Box>
@@ -790,53 +661,35 @@ function ProductsPage() {
             <Alert severity="error">{uploadResults.error}</Alert>
           ) : uploadResults ? (
             <Box>
-              {uploadResults.message && (
-                <Alert severity="warning" sx={{ mb: 2 }}>{uploadResults.message}</Alert>
-              )}
-              {!uploadResults.message && (
-                <Alert severity="success" sx={{ mb: 2 }}>
-                  Upload complete — {uploadResults.created} created, {uploadResults.updated} updated.
-                </Alert>
-              )}
-              {uploadResults.errors?.length > 0 && (
+              {uploadResults.errors?.length > 0 ? (
                 <>
-                  <Typography variant="subtitle2" color="error" gutterBottom>
-                    Fix these rows and re-upload:
-                  </Typography>
-                  <List dense sx={{ maxHeight: 220, overflow: 'auto', bgcolor: 'error.50', borderRadius: 1, border: '1px solid', borderColor: 'error.light' }}>
+                  <Alert severity="error" sx={{ mb: 2 }}>Nothing was saved. Fix these rows and upload again:</Alert>
+                  <List dense sx={{ maxHeight: 260, overflow: "auto", border: 1, borderColor: "error.light", borderRadius: 1 }}>
                     {uploadResults.errors.map((e, i) => (
                       <ListItem key={i} divider>
-                        <ListItemText
-                          primary={`Row ${e.row}: ${e.name}`}
-                          secondary={e.error}
-                          primaryTypographyProps={{ fontWeight: 'medium', variant: 'body2' }}
-                          secondaryTypographyProps={{ color: 'error.main', variant: 'caption' }}
-                        />
+                        <ListItemText primary={`Row ${e.row}: ${e.name}`} secondary={e.error}
+                          primaryTypographyProps={{ fontWeight: 600, variant: "body2" }} secondaryTypographyProps={{ color: "error.main", variant: "caption" }} />
                       </ListItem>
                     ))}
                   </List>
+                </>
+              ) : (
+                <>
+                  <Alert severity="success">Upload complete: {uploadResults.created} created, {uploadResults.updated} updated.</Alert>
+                  {uploadResults.stock_note && <Alert severity="info" sx={{ mt: 1.5 }}>{uploadResults.stock_note} Use Restock or Adjust stock to change it.</Alert>}
                 </>
               )}
             </Box>
           ) : null}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setUploadDialogOpen(false)} disabled={uploading}>Close</Button>
-        </DialogActions>
+        <DialogActions><Button onClick={() => setUploadOpen(false)} disabled={uploading}>Close</Button></DialogActions>
       </Dialog>
 
-      {/* Snackbar */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-      >
-        <Alert severity={snackbar.severity} sx={{ width: '100%' }}>
-          {snackbar.message}
-        </Alert>
+      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
+        <Alert severity={snackbar.severity} variant="filled" onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>{snackbar.message}</Alert>
       </Snackbar>
-    </Container>
+    </Box>
   );
 }
 

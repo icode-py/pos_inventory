@@ -449,6 +449,16 @@ class AuditedProductViewSet(AuditMixin, viewsets.ModelViewSet):
             return [IsAuthenticated()]
         return [IsAuthenticated(), IsManagerOrAdmin()]
 
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related('category')
+        if self.action == 'list':
+            # Archived products stay out of the till and lists; managers can ask for them
+            wants_archived = self.request.query_params.get('archived') in ('1', 'true')
+            if wants_archived and (self.request.user.is_manager or self.request.user.is_admin):
+                return queryset.filter(is_archived=True)
+            return queryset.filter(is_archived=False)
+        return queryset
+
     def destroy(self, request, *args, **kwargs):
         from django.db.models import ProtectedError
         instance = self.get_object()
@@ -456,10 +466,32 @@ class AuditedProductViewSet(AuditMixin, viewsets.ModelViewSet):
             self.perform_destroy(instance)
         except ProtectedError:
             return Response(
-                {'error': f'"{instance.name}" has sales history and cannot be deleted.'},
+                {'error': f'"{instance.name}" has sales history and cannot be deleted. Archive it instead.',
+                 'can_archive': True},
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _set_archived(self, archived):
+        product = self.get_object()
+        if product.is_archived != archived:
+            product.is_archived = archived
+            product.save(update_fields=['is_archived'])
+            self._log('UPDATE', product, {'is_archived': {'from': str(not archived), 'to': str(archived)}})
+        return Response(self.get_serializer(product).data)
+
+    @action(detail=True, methods=['post'])
+    def archive(self, request, pk=None):
+        return self._set_archived(True)
+
+    @action(detail=True, methods=['post'])
+    def restore(self, request, pk=None):
+        return self._set_archived(False)
+
+    @action(detail=True, methods=['get'])
+    def insights(self, request, pk=None):
+        from .stock import product_insights
+        return Response(product_insights(self.get_object()))
 
 
 class RefusedSaleViewSet(AuditMixin, viewsets.ReadOnlyModelViewSet):
@@ -531,7 +563,7 @@ CRITICAL_STOCK_THRESHOLD = 5
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def low_stock_alerts(request):
-    low = Product.objects.filter(store=current_store(request), stock__lte=LOW_STOCK_THRESHOLD).order_by('stock')
+    low = Product.objects.filter(store=current_store(request), is_archived=False, stock__lte=LOW_STOCK_THRESHOLD).order_by('stock')
     data = []
     for p in low:
         data.append({
@@ -601,7 +633,7 @@ def download_product_template(request):
         ('category_name', 'Optional. Type the category name — it will be created if it does not exist.'),
         ('price *', 'Required. Selling price per unit. Must be greater than 0.'),
         ('cost_price *', 'Required. Purchase/cost price. Must be 0 or more.'),
-        ('stock *', 'Required. Current stock quantity (whole number).'),
+        ('stock *', 'Required. Opening stock for NEW products (whole number). Ignored for products already in the app: use Restock or Adjust stock.'),
         ('barcode *', 'Required. Unique barcode/SKU. Used to match existing products on re-upload.'),
         ('unit_of_measure', 'Optional. e.g. units, kg, litres, packs. Defaults to "units".'),
         ('is_bulk_product', 'Optional. TRUE or FALSE. Set to TRUE only for bulk-packed products.'),
@@ -609,7 +641,7 @@ def download_product_template(request):
         ('bulk_price', 'Required if bulk. Price for the entire bulk pack.'),
         ('', ''),
         ('NOTES', ''),
-        ('Re-uploading', 'If a barcode already exists, the product is UPDATED not duplicated.'),
+        ('Re-uploading', 'If a barcode already exists, its details and prices are UPDATED (not duplicated). Its stock is not changed.'),
         ('Errors', 'If any row has an error the entire upload is cancelled — nothing is saved.'),
         ('Max rows', f'Maximum {MAX_UPLOAD_ROWS} products per upload. Max file size 5 MB.'),
     ]
@@ -760,20 +792,22 @@ def bulk_upload_products(request):
             if item['category_name']:
                 category, _ = Category.objects.get_or_create(store=store, name=item['category_name'])
 
+            # A re-upload updates details and prices only. Stock for an existing product
+            # changes through sales, restocks and adjustments, so the sheet's stock is only
+            # used for new products.
+            details = {
+                'name': item['name'],
+                'category': category,
+                'price': item['price'],
+                'cost_price': item['cost_price'],
+                'unit_of_measure': item['unit_of_measure'],
+                'is_bulk_product': item['is_bulk'],
+                'bulk_quantity': item['bulk_quantity'] if item['is_bulk'] else 1,
+                'bulk_price': item['bulk_price'] if item['is_bulk'] else None,
+            }
             product, was_created = Product.objects.update_or_create(
-                store=store,
-                barcode=item['barcode'],
-                defaults={
-                    'name': item['name'],
-                    'category': category,
-                    'price': item['price'],
-                    'cost_price': item['cost_price'],
-                    'stock': item['stock'],
-                    'unit_of_measure': item['unit_of_measure'],
-                    'is_bulk_product': item['is_bulk'],
-                    'bulk_quantity': item['bulk_quantity'] if item['is_bulk'] else 1,
-                    'bulk_price': item['bulk_price'] if item['is_bulk'] else None,
-                }
+                store=store, barcode=item['barcode'],
+                defaults=details, create_defaults={**details, 'stock': item['stock']},
             )
             AuditLog.objects.create(
                 store=current_store(request),
@@ -794,6 +828,7 @@ def bulk_upload_products(request):
         'updated': updated,
         'errors': [],
         'total_processed': created + updated,
+        'stock_note': 'Stock in the sheet was used for new products only. Existing products kept their stock.' if updated else '',
     })
 
 
