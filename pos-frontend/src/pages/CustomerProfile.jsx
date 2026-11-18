@@ -1,310 +1,138 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
-  Box, Typography, Card, CardContent, Grid, Chip, Avatar,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, Divider, Button, LinearProgress, List, ListItem,
-  ListItemText, ListItemIcon
-} from '@mui/material';
+  Alert, Avatar, Box, Button, Chip, CircularProgress, Collapse, Grid, LinearProgress, Paper, Typography, useTheme,
+} from "@mui/material";
 import {
-  ArrowBack as ArrowBackIcon,
-  Loyalty as LoyaltyIcon,
-  Receipt as ReceiptIcon,
-  CalendarToday as CalendarIcon,
-  AttachMoney as MoneyIcon,
-  ShoppingCart as CartIcon
-} from '@mui/icons-material';
-import axiosInstance from '../utils/axiosInstance';
+  ArrowBack as BackIcon, Loyalty as PointsIcon, Payments as SpentIcon, Repeat as VisitsIcon, ShoppingBasket as AvgIcon,
+  WhatsApp as WhatsAppIcon, ReceiptLong as HistoryIcon, Person as PersonIcon, ExpandMore as MoreIcon,
+} from "@mui/icons-material";
+import axiosInstance from "../utils/axiosInstance";
+import { useStore } from "../context/StoreContext";
+import { loyaltyRules, loyaltyTier } from "../utils/loyalty";
+import { toWhatsAppNumber } from "../utils/receiptText";
+import { BRAND_GRADIENT, EmptyState, Section, StatTile, count, initials, naira, timeAgo } from "../components/PagePieces";
 
-const CustomerProfile = () => {
+const PAY = { CASH: "Cash", TRANSFER: "Transfer", POS: "POS", SPLIT: "Split" };
+
+export default function CustomerProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const theme = useTheme();
+  const { store } = useStore();
+  const rules = loyaltyRules(store);
   const [customer, setCustomer] = useState(null);
-  const [transactions, setTransactions] = useState([]);
+  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(null);
 
-  useEffect(() => {
-    if (id) {
-      fetchCustomerData();
-    }
-  }, [id]);
-
-  const fetchCustomerData = async () => {
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const [customerResponse, transactionsResponse] = await Promise.all([
+      const [c, h] = await Promise.all([
         axiosInstance.get(`/customers/${id}/`),
-        axiosInstance.get(`/customer-transactions/?customer_id=${id}`)
+        axiosInstance.get("/customer-transactions/", { params: { customer_id: id } }),
       ]);
-      
-      setCustomer(customerResponse.data);
-      setTransactions(transactionsResponse.data);
-    } catch (error) {
-      console.error('Failed to fetch customer data:', error);
+      setCustomer(c.data);
+      setHistory(h.data);
+    } catch (err) {
+      setError(err.response?.status === 404 ? "Customer not found" : "Could not load this customer");
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+  useEffect(() => { load(); }, [load]);
 
-  const getLoyaltyTier = (points) => {
-    if (points >= 1000) return { label: 'Gold', color: 'warning', progress: 100 };
-    if (points >= 500) return { label: 'Silver', color: 'default', progress: 50 };
-    return { label: 'Bronze', color: 'secondary', progress: 25 };
-  };
-
-  const calculateNextTier = (points) => {
-    if (points < 500) return { tier: 'Silver', needed: 500 - points };
-    if (points < 1000) return { tier: 'Gold', needed: 1000 - points };
-    return { tier: 'Max', needed: 0 };
-  };
-
-  if (loading) {
+  if (loading) return <Box sx={{ textAlign: "center", py: 8 }}><CircularProgress /></Box>;
+  if (error || !customer) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-        <Typography>Loading customer profile...</Typography>
+      <Box sx={{ p: 2 }}>
+        <Button startIcon={<BackIcon />} onClick={() => navigate("/customers")}>Customers</Button>
+        <Alert severity="error" sx={{ mt: 2 }}>{error || "Customer not found"}</Alert>
       </Box>
     );
   }
 
-  if (!customer) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Typography variant="h5">Customer not found</Typography>
-        <Button onClick={() => navigate('/customers')} startIcon={<ArrowBackIcon />}>
-          Back to Customers
-        </Button>
-      </Box>
-    );
-  }
-
-  const tier = getLoyaltyTier(customer.loyalty_points);
-  const nextTier = calculateNextTier(customer.loyalty_points);
+  const tier = loyaltyTier(customer.loyalty_points, store);
+  const avg = customer.total_visits ? Number(customer.total_spent) / customer.total_visits : 0;
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/customers')}>
-          Back to Customers
-        </Button>
-        <Typography variant="h4" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
-          Customer Profile
-        </Typography>
-      </Box>
+    <Box sx={{ p: { xs: 1.5, sm: 2, md: 3 }, maxWidth: 1100, mx: "auto" }}>
+      <Button startIcon={<BackIcon />} onClick={() => navigate("/customers")} sx={{ mb: 1 }}>Customers</Button>
 
-      <Grid container spacing={3}>
-        {/* Customer Info Card */}
-        <Grid item size={{ xs: 12, md: 4 }}>
-          <Card>
-            <CardContent sx={{ textAlign: 'center', p: 3 }}>
-              <Avatar
-                sx={{
-                  width: 80,
-                  height: 80,
-                  bgcolor: 'primary.main',
-                  fontSize: '2rem',
-                  mx: 'auto',
-                  mb: 2
-                }}
-              >
-                {customer.name.charAt(0).toUpperCase()}
-              </Avatar>
-              
-              <Typography variant="h5" gutterBottom>
-                {customer.name}
-              </Typography>
-              
-              <Chip 
-                label={tier.label} 
-                color={tier.color}
-                size="small"
-                sx={{ mb: 2 }}
-              />
-              
-              <Box sx={{ textAlign: 'left', mt: 2 }}>
-                <Typography variant="body2" gutterBottom>
-                  <strong>Phone:</strong> {customer.phone}
-                </Typography>
-                <Typography variant="body2" gutterBottom>
-                  <strong>Email:</strong> {customer.email || 'Not provided'}
-                </Typography>
-                <Typography variant="body2" gutterBottom>
-                  <strong>Member Since:</strong> {new Date(customer.created_at).toLocaleDateString()}
-                </Typography>
-                {customer.notes && (
-                  <Typography variant="body2">
-                    <strong>Notes:</strong> {customer.notes}
-                  </Typography>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
+      <Paper sx={{ p: { xs: 2, sm: 2.5 }, mb: 2, borderRadius: 4, background: BRAND_GRADIENT, color: "#fff" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+          <Avatar sx={{ width: 60, height: 60, fontSize: 22, fontWeight: 800, bgcolor: "rgba(255,255,255,0.22)" }}>{initials(customer.name)}</Avatar>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="h5" fontWeight={800} noWrap>{customer.name}</Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9 }}>{customer.phone}{customer.email ? ` · ${customer.email}` : ""}</Typography>
+            <Typography variant="caption" sx={{ opacity: 0.85 }}>
+              Customer since {new Date(customer.created_at).toLocaleDateString("en-NG", { month: "short", year: "numeric" })} · last visit {timeAgo(customer.last_visit)}
+            </Typography>
+          </Box>
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
+            <Chip label={tier.label} sx={{ fontWeight: 800, bgcolor: "#fff", color: tier.color }} />
+            <Button size="small" variant="contained" startIcon={<WhatsAppIcon />} href={`https://wa.me/${toWhatsAppNumber(customer.phone)}`} target="_blank"
+              sx={{ bgcolor: "#25D366", "&:hover": { bgcolor: "#1ebe5a" } }}>WhatsApp</Button>
+          </Box>
+        </Box>
+        {rules.enabled && (
+          <Box sx={{ mt: 2 }}>
+            <LinearProgress variant="determinate" value={Math.min(tier.progress, 100)} sx={{ height: 8, borderRadius: 4, bgcolor: "rgba(255,255,255,0.25)", "& .MuiLinearProgress-bar": { bgcolor: "#fff" } }} />
+            <Typography variant="caption" sx={{ opacity: 0.9 }}>
+              {tier.next ? `${count(tier.next.needed)} more points to ${tier.next.label}` : "Top tier reached"}
+            </Typography>
+          </Box>
+        )}
+      </Paper>
 
-          {/* Loyalty Progress */}
-          <Card sx={{ mt: 3 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <LoyaltyIcon color="primary" />
-                Loyalty Progress
-              </Typography>
-              
-              <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography variant="body2">Current Points</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {customer.loyalty_points}
-                  </Typography>
-                </Box>
-                <LinearProgress 
-                  variant="determinate" 
-                  value={tier.progress} 
-                  color={tier.color}
-                  sx={{ height: 8, borderRadius: 4 }}
-                />
-              </Box>
-
-              {nextTier.needed > 0 && (
-                <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                  <Typography variant="body2" color="textSecondary">
-                    <strong>{nextTier.needed} points</strong> needed for {nextTier.tier} tier
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Statistics and Transactions */}
-        <Grid item size={{ xs: 12, md: 8 }}>
-          {/* Statistics Cards */}
-          <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid item size={{ xs: 12, sm: 4 }}>
-              <Card sx={{ bgcolor: 'primary.light', color: 'white' }}>
-                <CardContent sx={{ textAlign: 'center' }}>
-                  <MoneyIcon sx={{ fontSize: 40, mb: 1 }} />
-                  <Typography variant="h4">
-                    ₦{parseFloat(customer.total_spent).toLocaleString()}
-                  </Typography>
-                  <Typography variant="body2">Total Spent</Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            
-            <Grid item size={{ xs: 12, sm: 4 }}>
-              <Card sx={{ bgcolor: 'success.light', color: 'white' }}>
-                <CardContent sx={{ textAlign: 'center' }}>
-                  <CartIcon sx={{ fontSize: 40, mb: 1 }} />
-                  <Typography variant="h4">{customer.total_visits}</Typography>
-                  <Typography variant="body2">Total Visits</Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            
-            <Grid item size={{ xs: 12, sm: 4 }}>
-              <Card sx={{ bgcolor: 'warning.light', color: 'white' }}>
-                <CardContent sx={{ textAlign: 'center' }}>
-                  <LoyaltyIcon sx={{ fontSize: 40, mb: 1 }} />
-                  <Typography variant="h4">{customer.loyalty_points}</Typography>
-                  <Typography variant="body2">Loyalty Points</Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-
-          {/* Recent Transactions */}
-          <Card>
-            <CardContent sx={{ p: 0 }}>
-              <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <ReceiptIcon color="primary" />
-                  Purchase History
-                </Typography>
-              </Box>
-
-              {transactions.length === 0 ? (
-                <Box sx={{ p: 4, textAlign: 'center' }}>
-                  <Typography color="textSecondary">
-                    No purchase history found for this customer.
-                  </Typography>
-                </Box>
-              ) : (
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Date</TableCell>
-                        <TableCell>Sale ID</TableCell>
-                        <TableCell align="right">Amount</TableCell>
-                        <TableCell align="right">Points Earned</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {transactions.map((transaction) => (
-                        <TableRow key={transaction.id} hover>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <CalendarIcon color="action" fontSize="small" />
-                              {new Date(transaction.created_at).toLocaleDateString()}
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">
-                              #{transaction.sale}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body1" fontWeight="bold">
-                              ₦{parseFloat(transaction.sale_details?.total_amount || 0).toLocaleString()}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Chip 
-                              label={`+${transaction.points_earned}`} 
-                              size="small" 
-                              color="success"
-                              variant="outlined"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Quick Stats */}
-          <Card sx={{ mt: 3 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Customer Insights
-              </Typography>
-              <List>
-                <ListItem>
-                  <ListItemIcon>
-                    <MoneyIcon color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Average Spend per Visit"
-                    secondary={`₦${(parseFloat(customer.total_spent) / customer.total_visits || 0).toFixed(2)}`}
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemIcon>
-                    <LoyaltyIcon color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Points per Naira"
-                    secondary={`${(customer.loyalty_points / parseFloat(customer.total_spent) * 100 || 0).toFixed(2)} points per ₦100`}
-                  />
-                </ListItem>
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
+      <Grid container spacing={1.5} sx={{ mb: 2 }}>
+        <Grid size={{ xs: 6, md: 3 }}><StatTile label="Points" value={count(customer.loyalty_points)} note={`worth ${naira(customer.loyalty_points * rules.pointValue)}`} icon={PointsIcon} color={theme.palette.warning.main} /></Grid>
+        <Grid size={{ xs: 6, md: 3 }}><StatTile label="Spent" value={naira(customer.total_spent)} note="all time" icon={SpentIcon} color={theme.palette.success.main} /></Grid>
+        <Grid size={{ xs: 6, md: 3 }}><StatTile label="Visits" value={count(customer.total_visits)} note="purchases" icon={VisitsIcon} color={theme.palette.info.main} /></Grid>
+        <Grid size={{ xs: 6, md: 3 }}><StatTile label="Avg. spend" value={naira(avg)} note="per visit" icon={AvgIcon} color={theme.palette.secondary.main} /></Grid>
       </Grid>
+
+      {customer.notes && (
+        <Alert icon={<PersonIcon />} severity="info" sx={{ mb: 2 }}>{customer.notes}</Alert>
+      )}
+
+      <Section title={`Purchase history (${count(history.length)})`} icon={HistoryIcon} color={theme.palette.info.main}>
+        {history.length === 0 ? <EmptyState icon={HistoryIcon}>No purchases yet.</EmptyState> : history.map((t) => {
+          const sale = t.sale_details || {};
+          const items = sale.items || [];
+          return (
+            <Box key={t.id} sx={{ borderBottom: 1, borderColor: "divider", py: 1 }}>
+              <Box onClick={() => setOpen(open === t.id ? null : t.id)} sx={{ display: "flex", alignItems: "center", gap: 1, cursor: "pointer" }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="body2" fontWeight={700}>{naira(sale.total_amount, 2)}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {new Date(t.created_at).toLocaleString("en-NG", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                    {` · ${items.reduce((n, i) => n + i.quantity, 0)} items`}{sale.payment_method ? ` · ${PAY[sale.payment_method] || sale.payment_method}` : ""}
+                  </Typography>
+                </Box>
+                {t.points_redeemed > 0 && <Chip size="small" color="warning" variant="outlined" label={`-${count(t.points_redeemed)} pts`} />}
+                {t.points_earned > 0 && <Chip size="small" color="success" variant="outlined" label={`+${count(t.points_earned)} pts`} />}
+                <MoreIcon sx={{ color: "text.disabled", transform: open === t.id ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+              </Box>
+              <Collapse in={open === t.id}>
+                <Box sx={{ pl: 1, pt: 1 }}>
+                  {items.map((i) => (
+                    <Box key={i.id} sx={{ display: "flex", justifyContent: "space-between", py: 0.25 }}>
+                      <Typography variant="caption">{i.quantity} × {i.product?.name}</Typography>
+                      <Typography variant="caption" fontWeight={700}>{naira(i.quantity * Number(i.price_at_sale), 2)}</Typography>
+                    </Box>
+                  ))}
+                  {Number(sale.points_discount) > 0 && (
+                    <Typography variant="caption" color="success.main">Points discount: -{naira(sale.points_discount, 2)}</Typography>
+                  )}
+                </Box>
+              </Collapse>
+            </Box>
+          );
+        })}
+      </Section>
     </Box>
   );
-};
-
-export default CustomerProfile;
+}

@@ -177,7 +177,8 @@ def restock_summary(request):
     today_rows = rows.filter(restocked_at__date=today)
     month_rows = rows.filter(restocked_at__date__gte=month_start)
     products = Product.objects.filter(store=store, is_archived=False)
-    from .views import LOW_STOCK_THRESHOLD
+    from .views import low_stock_level
+    LOW_STOCK_THRESHOLD = low_stock_level(store)
     return Response({
         'today_restocks': today_rows.count(),
         'today_items': today_rows.aggregate(n=Sum('quantity_added'))['n'] or 0,

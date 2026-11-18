@@ -150,22 +150,14 @@ def register_staff(request):
     """Create a new staff account. Requires manager or admin role."""
     # Enforce per-tier cashier limit
     settings_obj = current_store(request)
-    limit = CASHIER_LIMITS.get(settings_obj.plan_tier)
-    if limit is not None:
-        is_cashier_role = request.data.get('is_cashier', False)
-        if is_cashier_role:
-            current_cashiers = Staff.objects.filter(store=settings_obj, is_cashier=True, is_active=True).count()
-            if current_cashiers >= limit:
-                return Response({
-                    'error': (
-                        f'Your {settings_obj.plan_tier.capitalize()} plan allows a maximum of {limit} '
-                        f'cashier account{"s" if limit != 1 else ""}. '
-                        f'Upgrade your plan to add more cashiers.'
-                    ),
-                    'upgrade_required': True,
-                    'current_tier': settings_obj.plan_tier,
-                    'cashier_limit': limit,
-                }, status=status.HTTP_403_FORBIDDEN)
+    wants_manager = _as_bool(request.data.get('is_manager'), False)
+    wants_cashier = _as_bool(request.data.get('is_cashier'), not wants_manager)
+    if wants_manager and not request.user.is_admin:
+        return Response({'error': 'Only the store owner can add managers'}, status=403)
+    if wants_cashier:
+        limit_error = _cashier_limit_error(settings_obj)
+        if limit_error:
+            return limit_error
     try:
         serializer = StaffSerializer(data=request.data)
         if serializer.is_valid():
@@ -173,8 +165,9 @@ def register_staff(request):
                 store=settings_obj,
                 username=serializer.validated_data['username'],
                 password=request.data.get('password'),
-                is_cashier=request.data.get('is_cashier', False),
-                is_manager=request.data.get('is_manager', False),
+                is_cashier=wants_cashier,
+                is_manager=wants_manager,
+                first_name=str(request.data.get('first_name') or '').strip()[:150],
                 is_admin=False,   # admins can only be created via Django admin
                 is_staff=True,
                 is_active=True,
@@ -363,10 +356,29 @@ class CustomerViewSet(AuditMixin, viewsets.ModelViewSet):
     pagination_class = None  # stats cards on customers page need the full list
     serializer_class = CustomerSerializer
     permission_classes = [IsAuthenticated, make_tier_permission('customer_loyalty')]
-    # throttle_classes = [SustainedRateThrottle]
-    
+
+    def get_permissions(self):
+        if self.action in ('destroy', 'export'):
+            return [IsAuthenticated(), IsManagerOrAdmin(), make_tier_permission('customer_loyalty')()]
+        return super().get_permissions()
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export(self, request):
+        """All customers as CSV, e.g. for a WhatsApp broadcast list."""
+        import csv
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="customers_{timezone.localdate()}.csv"'
+        writer = csv.writer(response)
+        writer.writerow(['name', 'phone', 'email', 'points', 'total_spent', 'visits', 'last_visit', 'customer_since'])
+        for c in self.get_queryset():
+            writer.writerow([c.name, c.phone, c.email, c.loyalty_points, c.total_spent, c.total_visits,
+                             timezone.localtime(c.last_visit).date() if c.last_visit else '',
+                             timezone.localtime(c.created_at).date()])
+        return response
+
     def get_queryset(self):
-        queryset = super().get_queryset()
+        from django.db.models import Max
+        queryset = super().get_queryset().annotate(last_visit=Max('saletransaction__created_at'))
         phone = self.request.query_params.get('phone', None)
         name = self.request.query_params.get('name', None)
         
@@ -396,43 +408,6 @@ class LoyaltySettingsViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsManagerOrAdmin, make_tier_permission('customer_loyalty')]
     pagination_class = None
 
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def redeem_loyalty_points(request):
-    block = tier_block_response('customer_loyalty', request)
-    if block:
-        return Response(block, status=status.HTTP_403_FORBIDDEN)
-    customer_id = request.data.get('customer_id')
-    points_to_redeem = request.data.get('points_to_redeem')
-    
-    if not customer_id or not points_to_redeem:
-        return Response({"error": "Missing customer_id or points_to_redeem"}, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        customer = Customer.objects.get(id=customer_id, store=current_store(request))
-        loyalty_settings = LoyaltySettings.objects.filter(store=customer.store, is_active=True).first()
-        
-        if not loyalty_settings:
-            return Response({"error": "Loyalty program is not active"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        if customer.loyalty_points < points_to_redeem:
-            return Response({"error": "Insufficient loyalty points"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        discount_amount = (points_to_redeem * float(loyalty_settings.redemption_rate)) / 100
-        
-        customer.loyalty_points -= points_to_redeem
-        customer.save()
-        
-        return Response({
-            "message": "Points redeemed successfully",
-            "discount_amount": discount_amount,
-            "remaining_points": customer.loyalty_points
-        })
-        
-    except Customer.DoesNotExist:
-        return Response({"error": "Customer not found"}, status=status.HTTP_404_NOT_FOUND)
-    
 
 class BulkDiscountViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     queryset = BulkDiscount.objects.all()
@@ -519,10 +494,17 @@ class AuditedProductViewSet(AuditMixin, viewsets.ModelViewSet):
 
 
 class RefusedSaleViewSet(AuditMixin, viewsets.ReadOnlyModelViewSet):
-    queryset = RefusedSale.objects.select_related('cashier', 'store').filter(status='PENDING')
+    queryset = RefusedSale.objects.select_related('cashier', 'store', 'reviewed_by')
     serializer_class = RefusedSaleSerializer
     permission_classes = [IsAuthenticated, IsManagerOrAdmin]
     pagination_class = None
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # The list shows what still needs a decision; ?status=reviewed shows past decisions
+        if self.action == 'list' and self.request.query_params.get('status') == 'reviewed':
+            return queryset.exclude(status='PENDING').order_by('-reviewed_at')[:100]
+        return queryset.filter(status='PENDING')
 
     def _pending(self, pk):
         return self.get_queryset().select_for_update(of=('self',)).filter(pk=pk).first()
@@ -532,6 +514,7 @@ class RefusedSaleViewSet(AuditMixin, viewsets.ReadOnlyModelViewSet):
         refused.sale = sale
         refused.reviewed_by = self.request.user
         refused.reviewed_at = timezone.now()
+        refused.review_note = str(self.request.data.get('note') or '').strip()[:200]
         refused.save()
         self._log('UPDATE', refused, {'status': {'from': 'PENDING', 'to': new_status}})
         return Response(self.get_serializer(refused).data)
@@ -571,30 +554,49 @@ class AuditLogViewSet(StoreScopedMixin, viewsets.ReadOnlyModelViewSet):
         action = self.request.query_params.get('action')
         user_id = self.request.query_params.get('user_id')
         if model:
-            qs = qs.filter(model_name__iexact=model)
+            # One kind ("Product") or several ("Restock,StockAdjustment")
+            models_wanted = [m.strip() for m in model.split(',') if m.strip()]
+            qs = qs.filter(model_name__in=models_wanted)
         if action:
             qs = qs.filter(action=action.upper())
         if user_id:
             qs = qs.filter(changed_by__id=user_id)
-        return qs
+        params = self.request.query_params
+        if params.get('search'):
+            qs = qs.filter(object_repr__icontains=params['search'].strip())
+        if params.get('start_date'):
+            day = parse_date(params['start_date'])
+            if day:
+                qs = qs.filter(timestamp__date__gte=day)
+        if params.get('end_date'):
+            day = parse_date(params['end_date'])
+            if day:
+                qs = qs.filter(timestamp__date__lte=day)
+        return qs.order_by('-timestamp', '-id')
 
 
 # ─── Low-stock alerts ────────────────────────────────────────────────────────
 
-LOW_STOCK_THRESHOLD = 10
+LOW_STOCK_THRESHOLD = 10  # default; each store sets its own in Settings
 CRITICAL_STOCK_THRESHOLD = 5
+
+
+def low_stock_level(store):
+    return getattr(store, 'low_stock_threshold', None) or LOW_STOCK_THRESHOLD
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def low_stock_alerts(request):
-    low = Product.objects.filter(store=current_store(request), is_archived=False, stock__lte=LOW_STOCK_THRESHOLD).order_by('stock')
+    store = current_store(request)
+    level = low_stock_level(store)
+    low = Product.objects.filter(store=store, is_archived=False, stock__lte=level).order_by('stock')
     data = []
     for p in low:
         data.append({
             'id': p.id,
             'name': p.name,
             'stock': p.stock,
-            'severity': 'critical' if p.stock <= CRITICAL_STOCK_THRESHOLD else 'low',
+            'severity': 'critical' if p.stock <= max(level // 2, 0) else 'low',
             'barcode': p.barcode,
             'category': p.category.name if p.category else None,
         })
@@ -936,34 +938,75 @@ def margin_report(request):
     })
 
 
-# ─── Store Settings ───────────────────────────────────────────────────────────
+# ─── Staff management ───────────────────────────────────────────────────────────
+
+def _staff_target(request, pk, verb):
+    """The staff member a manager is acting on, or an error Response.
+
+    Nobody acts on themselves here, only the owner (admin) acts on managers or admins.
+    """
+    try:
+        staff = Staff.objects.get(pk=pk, store=current_store(request))
+    except Staff.DoesNotExist:
+        return None, Response({'error': 'Staff not found'}, status=404)
+    if staff.pk == request.user.pk:
+        return None, Response({'error': f'You cannot {verb} your own account here. Use Settings → My account.'}, status=403)
+    if (staff.is_admin or staff.is_manager) and not request.user.is_admin:
+        return None, Response({'error': f'Only the store owner can {verb} managers'}, status=403)
+    return staff, None
+
+
+def _cashier_limit_error(store, exclude_pk=None):
+    limit = CASHIER_LIMITS.get(store.plan_tier)
+    if limit is None:
+        return None
+    active = Staff.objects.filter(store=store, is_cashier=True, is_active=True).exclude(pk=exclude_pk).count()
+    if active >= limit:
+        return Response({
+            'error': f'Your {store.plan_tier.capitalize()} plan allows {limit} active cashier'
+                     f'{"s" if limit != 1 else ""}. Deactivate one or upgrade your plan.',
+            'upgrade_required': True, 'cashier_limit': limit,
+        }, status=status.HTTP_403_FORBIDDEN)
+    return None
+
+
+def _as_bool(value, default):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in ('1', 'true', 'yes', 'on')
+
 
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 @throttle_classes([BurstRateThrottle])
 def update_staff(request, pk):
-    try:
-        staff = Staff.objects.get(pk=pk, store=current_store(request))
-    except Staff.DoesNotExist:
-        return Response({'error': 'Staff not found'}, status=404)
-    if staff.is_admin and not request.user.is_admin:
-        return Response({'error': 'Cannot modify admin accounts'}, status=403)
-    if staff.pk == request.user.pk:
-        return Response({'error': 'Use profile settings to modify your own account'}, status=403)
-    is_manager = request.data.get('is_manager', staff.is_manager)
+    staff, error = _staff_target(request, pk, 'change')
+    if error:
+        return error
+    is_manager = _as_bool(request.data.get('is_manager'), staff.is_manager)
+    is_cashier = _as_bool(request.data.get('is_cashier'), staff.is_cashier)
+    is_active = _as_bool(request.data.get('is_active'), staff.is_active)
     if is_manager and not staff.is_manager and not request.user.is_admin:
-        return Response({'error': 'Only admins can assign manager role'}, status=403)
-    staff.is_active = request.data.get('is_active', staff.is_active)
-    staff.is_cashier = request.data.get('is_cashier', staff.is_cashier)
-    staff.is_manager = is_manager
+        return Response({'error': 'Only the store owner can make someone a manager'}, status=403)
+    if not (is_manager or is_cashier):
+        return Response({'error': 'Choose a role: cashier or manager'}, status=400)
+    # Becoming an active cashier counts against the plan, however it happens
+    if is_cashier and is_active and not (staff.is_cashier and staff.is_active):
+        limit_error = _cashier_limit_error(current_store(request), exclude_pk=staff.pk)
+        if limit_error:
+            return limit_error
+    before = {'role': staff.get_role_display(), 'active': staff.is_active, 'name': staff.first_name}
+    staff.is_manager, staff.is_cashier, staff.is_active = is_manager, is_cashier, is_active
+    if 'first_name' in request.data:
+        staff.first_name = str(request.data.get('first_name') or '').strip()[:150]
     staff.save()
-    logger.info('Staff %s updated by %s', staff.username, request.user.username)
+    after = {'role': staff.get_role_display(), 'active': staff.is_active, 'name': staff.first_name}
     AuditLog.objects.create(
-        store=current_store(request),
-        action='UPDATE', model_name='Staff',
-        object_id=str(staff.pk), object_repr=staff.username,
-        changed_by=request.user,
-        changes={k: request.data[k] for k in ('is_cashier', 'is_manager', 'is_active') if k in request.data},
+        store=current_store(request), action='UPDATE', model_name='Staff',
+        object_id=str(staff.pk), object_repr=staff.username, changed_by=request.user,
+        changes={k: {'from': str(before[k]), 'to': str(after[k])} for k in before if before[k] != after[k]},
     )
     return Response(StaffSerializer(staff).data)
 
@@ -972,25 +1015,17 @@ def update_staff(request, pk):
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 @throttle_classes([BurstRateThrottle])
 def reset_staff_password(request, pk):
-    try:
-        staff = Staff.objects.get(pk=pk, store=current_store(request))
-    except Staff.DoesNotExist:
-        return Response({'error': 'Staff not found'}, status=404)
-    if staff.is_admin and not request.user.is_admin:
-        return Response({'error': 'Cannot reset admin passwords'}, status=403)
-    if staff.pk == request.user.pk:
-        return Response({'error': 'Use profile settings to change your own password'}, status=403)
+    staff, error = _staff_target(request, pk, 'reset the password of')
+    if error:
+        return error
     new_password = str(request.data.get('new_password', ''))
     if len(new_password) < 6:
         return Response({'error': 'Password must be at least 6 characters'}, status=400)
     staff.set_password(new_password)
     staff.save()
-    logger.info('Password reset for %s by %s', staff.username, request.user.username)
     AuditLog.objects.create(
-        store=current_store(request),
-        action='UPDATE', model_name='Staff',
-        object_id=str(staff.pk), object_repr=staff.username,
-        changed_by=request.user,
+        store=current_store(request), action='UPDATE', model_name='Staff',
+        object_id=str(staff.pk), object_repr=staff.username, changed_by=request.user,
         changes={'action': 'password_reset'},
     )
     return Response({'message': 'Password reset successfully'})
@@ -1000,25 +1035,43 @@ def reset_staff_password(request, pk):
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
 @throttle_classes([BurstRateThrottle])
 def delete_staff(request, pk):
-    try:
-        staff = Staff.objects.get(pk=pk, store=current_store(request))
-    except Staff.DoesNotExist:
-        return Response({'error': 'Staff not found'}, status=404)
-    if staff.is_admin and not request.user.is_admin:
-        return Response({'error': 'Cannot delete admin accounts'}, status=403)
-    if staff.pk == request.user.pk:
-        return Response({'error': 'Cannot delete your own account'}, status=403)
+    staff, error = _staff_target(request, pk, 'delete')
+    if error:
+        return error
+    # Someone with sales or stock history must stay on record, or their sales lose their name
+    has_history = (SaleTransaction.objects.filter(cashier=staff).exists()
+                   or Restock.objects.filter(restocked_by=staff).exists())
+    if has_history:
+        return Response({'error': f'{staff.username} has sales or stock history. Deactivate the account instead, '
+                                  'so their past sales keep their name.', 'can_deactivate': True}, status=409)
     username = staff.username
     AuditLog.objects.create(
-        store=current_store(request),
-        action='DELETE', model_name='Staff',
-        object_id=str(staff.pk), object_repr=username,
-        changed_by=request.user,
-        changes={},
+        store=current_store(request), action='DELETE', model_name='Staff',
+        object_id=str(staff.pk), object_repr=username, changed_by=request.user, changes={},
     )
     staff.delete()
-    logger.info('Staff %s deleted by %s', username, request.user.username)
-    return Response({'message': 'Staff account deleted successfully'})
+    return Response({'message': 'Staff account deleted'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([BurstRateThrottle])
+def change_my_password(request):
+    """Anyone can change their own password, given the current one."""
+    user = request.user
+    if not user.check_password(str(request.data.get('current_password', ''))):
+        return Response({'error': 'Your current password is not correct'}, status=400)
+    new_password = str(request.data.get('new_password', ''))
+    if len(new_password) < 6:
+        return Response({'error': 'The new password must be at least 6 characters'}, status=400)
+    if new_password == request.data.get('current_password'):
+        return Response({'error': 'Choose a password different from the current one'}, status=400)
+    user.set_password(new_password)
+    user.save()
+    if user.store_id:
+        AuditLog.objects.create(store=user.store, action='UPDATE', model_name='Staff', object_id=str(user.pk),
+                                object_repr=user.username, changed_by=user, changes={'action': 'own_password_changed'})
+    return Response({'message': 'Password changed'})
 
 
 # ─── Store Settings ───────────────────────────────────────────────────────────

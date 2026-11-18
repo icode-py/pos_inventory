@@ -312,12 +312,14 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
     transfer_amount = MoneyField(required=False, min_value=0)
     card_amount = MoneyField(required=False, min_value=0)
     cash_amount = MoneyField(read_only=True)
+    points_redeemed = serializers.IntegerField(required=False, min_value=0, max_value=10_000_000, default=0)
+    points_discount = MoneyField(read_only=True)
 
     class Meta:
         model = SaleTransaction
         fields = ['id', 'cashier', 'total_amount', 'paid_amount', 'change_given', 'created_at', 'items',
                   'customer_name', 'customer_id', 'client_ref', 'sold_at',
-                  'payment_method', 'cash_amount', 'transfer_amount', 'card_amount']
+                  'payment_method', 'cash_amount', 'transfer_amount', 'card_amount', 'points_redeemed', 'points_discount']
 
     def validate_total_amount(self, value):
         if value <= 0:
@@ -362,10 +364,28 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'items': 'Sale must contain at least one item'
             })
+        self.check_points(data)
         if not self.context.get('trust_prices'):
             self.check_prices(data, items_data)
 
         return data
+
+    def check_points(self, data):
+        """Loyalty points used at the till: the customer must have them and the store must allow it."""
+        points = data.get('points_redeemed') or 0
+        data['points_discount'] = Decimal(0)
+        if not points:
+            return
+        request = self.context.get('request')
+        store = getattr(getattr(request, 'user', None), 'store', None)
+        customer = data.get('customer')
+        if not customer:
+            raise serializers.ValidationError({'points_redeemed': 'Add the customer to use their points'})
+        if not store or not store.loyalty_enabled:
+            raise serializers.ValidationError({'points_redeemed': 'Loyalty points are switched off for this store'})
+        if customer.loyalty_points < points:
+            raise serializers.ValidationError({'points_redeemed': f'{customer.name} has only {customer.loyalty_points:,} points'})
+        data['points_discount'] = (Decimal(points) * Decimal(store.loyalty_point_value)).quantize(Decimal('0.01'))
 
     @staticmethod
     def check_prices(data, items_data):
@@ -390,7 +410,8 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'items': 'Prices are below the listed price. Refresh products and try again. ' + '; '.join(problems)
             })
-        if abs(Decimal(data['total_amount']) - lines_total) > slack:
+        # Points taken off the bill are part of what the lines add up to
+        if abs(Decimal(data['total_amount']) + data.get('points_discount', 0) - lines_total) > slack:
             raise serializers.ValidationError({
                 'total_amount': f'The sale total ₦{data["total_amount"]:,.2f} does not match its items (₦{lines_total:,.2f})'
             })
@@ -450,26 +471,27 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
             # Create SaleItem
             SaleItem.objects.create(transaction=transaction_instance, cost_at_sale=product.cost_price, **item_data)
 
-        # Award loyalty points and update customer stats (atomic to avoid race conditions)
+        # Loyalty: take off the points used, then award points on what was paid (atomic updates)
         if customer:
-            total = float(transaction_instance.total_amount)
-            loyalty_settings = LoyaltySettings.objects.filter(store=transaction_instance.store, is_active=True).first()
-            if loyalty_settings and float(loyalty_settings.points_per_amount) >= 1:
-                points_earned = int(total / float(loyalty_settings.points_per_amount))
-            else:
-                points_earned = int(total / 100)
-
-            # F() expressions update atomically in the database — no race condition
+            store = transaction_instance.store
+            used = transaction_instance.points_redeemed
+            if used:
+                taken = Customer.objects.filter(pk=customer.pk, loyalty_points__gte=used).update(
+                    loyalty_points=F('loyalty_points') - used)
+                if not taken:
+                    raise ValidationError({'points_redeemed': f'{customer.name} no longer has {used:,} points'})
+            total = transaction_instance.total_amount
+            points_earned = 0
+            if store.loyalty_enabled and store.loyalty_amount_per_point > 0:
+                points_earned = int(Decimal(total) // Decimal(store.loyalty_amount_per_point))
             Customer.objects.filter(pk=customer.pk).update(
                 loyalty_points=F('loyalty_points') + points_earned,
                 total_spent=F('total_spent') + total,
                 total_visits=F('total_visits') + 1,
             )
-
             CustomerTransaction.objects.create(
-                customer=customer,
-                sale=transaction_instance,
-                points_earned=points_earned,
+                customer=customer, sale=transaction_instance,
+                points_earned=points_earned, points_redeemed=used,
             )
 
         # created_at can only be set after insert. A phone clock running fast must not date a sale in the future.
@@ -481,16 +503,42 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
 
 
 class RefusedSaleSerializer(serializers.ModelSerializer):
+    """What a manager needs to decide on a held offline sale."""
     cashier = serializers.StringRelatedField()
+    reviewed_by = serializers.StringRelatedField()
     total_amount = serializers.SerializerMethodField()
+    payment_method = serializers.SerializerMethodField()
+    kind = serializers.SerializerMethodField()
+    customer_name = serializers.SerializerMethodField()
     items = serializers.SerializerMethodField()
 
     class Meta:
         model = RefusedSale
-        fields = ['id', 'cashier', 'sold_at', 'reason', 'status', 'total_amount', 'items']
+        fields = ['id', 'cashier', 'sold_at', 'reason', 'kind', 'status', 'total_amount', 'payment_method',
+                  'customer_name', 'items', 'reviewed_by', 'reviewed_at', 'review_note', 'sale']
 
     def get_total_amount(self, obj):
         return obj.payload.get('total_amount')
+
+    def get_payment_method(self, obj):
+        return obj.payload.get('payment_method') or 'CASH'
+
+    def get_kind(self, obj):
+        reason = obj.reason.lower()
+        if 'listed price' in reason or 'does not match' in reason:
+            return 'price'
+        if 'stock' in reason:
+            return 'stock'
+        if 'points' in reason:
+            return 'points'
+        return 'other'
+
+    def get_customer_name(self, obj):
+        customer_id = obj.payload.get('customer_id')
+        if not isinstance(customer_id, int):
+            return None
+        customer = Customer.objects.filter(store=obj.store, pk=customer_id).first()
+        return customer.name if customer else None
 
     def get_items(self, obj):
         items = [item for item in obj.payload.get('items') or [] if isinstance(item, dict)]
@@ -500,10 +548,17 @@ class RefusedSaleSerializer(serializers.ModelSerializer):
         rows = []
         for item in items:
             product = products.get(item.get('product_id'))
+            try:
+                quantity = int(item.get('quantity') or 0)
+                charged = round(float(item.get('price_at_sale') or 0) * quantity, 2)
+            except (TypeError, ValueError):
+                quantity, charged = 0, 0
             rows.append({
                 'name': product.name if product else 'Deleted product',
-                'quantity': item.get('quantity'),
+                'quantity': quantity,
                 'stock': product.stock if product else None,
+                'charged': charged,
+                'listed': round(float(expected_line_total(product, quantity, obj.sold_at)), 2) if product and quantity > 0 else None,
             })
         return rows
 
@@ -514,8 +569,8 @@ class StaffSerializer(serializers.ModelSerializer):
     role_display = serializers.ReadOnlyField(source='get_role_display')
     class Meta:
         model = Staff
-        fields = ['id', 'username', 'password', 'confirm_password', 'is_cashier', 'is_manager', 'is_admin', 'is_active', 'date_joined', 'role_display']
-        read_only_fields = ['date_joined']
+        fields = ['id', 'username', 'first_name', 'password', 'confirm_password', 'is_cashier', 'is_manager', 'is_admin', 'is_active', 'date_joined', 'last_login', 'role_display']
+        read_only_fields = ['date_joined', 'last_login']
         extra_kwargs = {
             'username': {'validators': []}  # Disable unique validator for updates
         }
@@ -568,9 +623,13 @@ class RestockSerializer(serializers.ModelSerializer):
 
 
 class CustomerSerializer(UniqueInStoreMixin, serializers.ModelSerializer):
+    last_visit = serializers.DateTimeField(read_only=True, allow_null=True)
+
     class Meta:
         model = Customer
-        fields = ['id', 'phone', 'name', 'email', 'loyalty_points', 'total_spent', 'total_visits', 'created_at', 'notes']
+        fields = ['id', 'phone', 'name', 'email', 'loyalty_points', 'total_spent', 'total_visits', 'created_at', 'notes', 'last_visit']
+        # Points and totals only change through sales
+        read_only_fields = ['loyalty_points', 'total_spent', 'total_visits']
 
     def validate_phone(self, value):
         # Strip formatting chars, then check digit count
@@ -625,5 +684,34 @@ class AuditLogSerializer(serializers.ModelSerializer):
 class StoreSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Store
-        fields = ['name', 'tagline', 'phone', 'address', 'email', 'receipt_footer', 'plan_tier']
+        fields = ['name', 'tagline', 'phone', 'address', 'email', 'receipt_footer', 'plan_tier',
+                  'low_stock_threshold', 'loyalty_enabled', 'loyalty_amount_per_point', 'loyalty_point_value',
+                  'loyalty_silver_points', 'loyalty_gold_points']
         read_only_fields = ['plan_tier']
+
+    def validate_name(self, value):
+        if len(value.strip()) < 2:
+            raise serializers.ValidationError('Store name must be at least 2 characters')
+        return value.strip()
+
+    def validate_low_stock_threshold(self, value):
+        if value > 100000:
+            raise serializers.ValidationError('Too high')
+        return value
+
+    def validate_loyalty_amount_per_point(self, value):
+        if value < 1:
+            raise serializers.ValidationError('Must be at least \u20a61')
+        return value
+
+    def validate_loyalty_point_value(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Must be more than \u20a60')
+        return value
+
+    def validate(self, data):
+        silver = data.get('loyalty_silver_points', getattr(self.instance, 'loyalty_silver_points', 0))
+        gold = data.get('loyalty_gold_points', getattr(self.instance, 'loyalty_gold_points', 0))
+        if gold <= silver:
+            raise serializers.ValidationError({'loyalty_gold_points': 'Gold must need more points than Silver'})
+        return data

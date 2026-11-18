@@ -4,7 +4,7 @@ import UpgradeIcon from '@mui/icons-material/Upgrade';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import { TIER_LABELS } from '../context/StoreContext';
 
-const WHATSAPP_NUMBER = '2348177007875';
+export const WHATSAPP_NUMBER = '2348177007875';
 
 const FEATURE_NAMES = {
   customer_loyalty:       'Customer Loyalty',

@@ -21,6 +21,7 @@ import { useOffline } from "../context/OfflineManager";
 import { useStore } from "../context/StoreContext";
 import axiosInstance from "../utils/axiosInstance";
 import { fetchProducts, readCachedProducts } from "../utils/productCache";
+import { lowStockLevel } from "../utils/loyalty";
 
 ChartJS.register(CategoryScale, LinearScale, LineElement, PointElement, Filler, ChartTooltip);
 
@@ -237,7 +238,7 @@ export default function Dashboard() {
     const mine = data.mine;
     const cached = data.products || readCachedProducts() || [];
     const out = cached.filter((p) => p.stock === 0);
-    const low = cached.filter((p) => p.stock > 0 && p.stock <= 5);
+    const low = cached.filter((p) => p.stock > 0 && p.stock <= lowStockLevel(store));
     return (
       <Box sx={{ p: { xs: 1.5, sm: 2, md: 3 }, maxWidth: 1100, mx: "auto" }}>
         {header}

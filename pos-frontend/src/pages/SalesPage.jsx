@@ -23,6 +23,7 @@ import ReceiptDialog from "../components/ReceiptDialog";
 import { useOffline } from "../context/OfflineManager";
 import { useStore } from "../context/StoreContext";
 import { storeKey } from "../utils/storeKey";
+import { loyaltyRules, loyaltyTier, pointsEarned } from "../utils/loyalty";
 import {
   clearCachedProducts, deductCachedStock, deductStock, fetchProducts, readCachedProducts,
 } from "../utils/productCache";
@@ -94,6 +95,8 @@ const SalesPage = () => {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [paidAmount, setPaidAmount] = useState("");
+  const [pointsToUse, setPointsToUse] = useState("");
+  const [usingPoints, setUsingPoints] = useState(false);
   const [transferPart, setTransferPart] = useState("");
   const [cardPart, setCardPart] = useState("");
   const [saving, setSaving] = useState(false);
@@ -252,7 +255,14 @@ const SalesPage = () => {
     const regular = (parseFloat(item.product.price) || 0) * item.quantity;
     return { ...item, total, regular, saving: regular - total };
   });
-  const totalAmount = lines.reduce((s, l) => s + l.total, 0);
+  const grossTotal = lines.reduce((s, l) => s + l.total, 0);
+  // Loyalty points used on this sale: never more than the customer has, and at least ₦1 is left to pay
+  const rules = loyaltyRules(store);
+  const pointsAvailable = selectedCustomer && rules.enabled ? Number(selectedCustomer.loyalty_points) || 0 : 0;
+  const maxPoints = Math.max(0, Math.min(pointsAvailable, Math.floor((grossTotal - 1) / rules.pointValue)));
+  const pointsUsed = usingPoints ? Math.min(Math.max(parseInt(pointsToUse) || 0, 0), maxPoints) : 0;
+  const pointsDiscount = r2(pointsUsed * rules.pointValue);
+  const totalAmount = r2(grossTotal - pointsDiscount);
   const itemCount = cart.reduce((s, i) => s + i.quantity, 0);
 
   const payment = (() => {
@@ -291,6 +301,8 @@ const SalesPage = () => {
     setTransferPart("");
     setCardPart("");
     setSelectedCustomer(null);
+    setPointsToUse("");
+    setUsingPoints(false);
     setCheckoutOpen(false);
     setSaleError("");
     setTimeout(() => searchRef.current?.focus(), 150);
@@ -327,11 +339,13 @@ const SalesPage = () => {
         price_at_sale: r2(l.total / l.quantity), // average unit price; the server checks it against the list price
       })),
       ...(selectedCustomer ? { customer_id: selectedCustomer.id } : {}),
+      ...(pointsUsed > 0 ? { points_redeemed: pointsUsed } : {}),
     };
     const receipt = (offline) => ({
       total_amount: r2(totalAmount), paid_amount: payment.paid, change_given: payment.change,
       payment_method: paymentMethod, transfer_amount: payment.transfer, card_amount: payment.card,
       items: lines.map((l) => ({ product: l.product, quantity: l.quantity, price_at_sale: r2(l.total / l.quantity), line_total: r2(l.total) })),
+      points_redeemed: pointsUsed, points_discount: pointsDiscount, points_earned: selectedCustomer ? pointsEarned(totalAmount, store) : 0,
       timestamp: new Date().toLocaleString(),
       customer: selectedCustomer ? { ...selectedCustomer, loyalty_points: parseInt(selectedCustomer.loyalty_points) || 0 } : null,
       isOffline: offline,
@@ -512,12 +526,34 @@ const SalesPage = () => {
               {selectedCustomer.phone} · <LoyaltyIcon sx={{ fontSize: 13 }} /> {selectedCustomer.loyalty_points} pts
             </Typography>
           </Box>
-          <IconButton size="small" onClick={() => setSelectedCustomer(null)}><CloseIcon fontSize="small" /></IconButton>
+          <IconButton size="small" onClick={() => { setSelectedCustomer(null); setPointsToUse(""); setUsingPoints(false); }}><CloseIcon fontSize="small" /></IconButton>
         </Paper>
       ) : (
         <Button fullWidth variant="text" startIcon={<PersonAddIcon />} onClick={() => setCustomerLookupOpen(true)} sx={{ mb: 1, justifyContent: "flex-start" }}>
           Add customer (loyalty points)
         </Button>
+      )}
+
+      {/* Loyalty points */}
+      {selectedCustomer && rules.enabled && pointsAvailable > 0 && grossTotal > 1 && (
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, mb: 1.5, borderColor: alpha(loyaltyTier(pointsAvailable, store).color, 0.6) }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: usingPoints ? 1 : 0 }}>
+            <Typography variant="body2">
+              <b>{pointsAvailable.toLocaleString("en-NG")} points</b> = {naira(pointsAvailable * rules.pointValue)} off
+            </Typography>
+            {!usingPoints ? (
+              <Button size="small" variant="outlined" onClick={() => { setUsingPoints(true); setPointsToUse(String(maxPoints)); }}>Use points</Button>
+            ) : (
+              <Button size="small" color="inherit" onClick={() => { setUsingPoints(false); setPointsToUse(""); }}>Don't use</Button>
+            )}
+          </Box>
+          {usingPoints && (
+            <TextField fullWidth size="small" type="number" label={`Points to use (max ${maxPoints.toLocaleString("en-NG")})`}
+              value={pointsToUse} onChange={(e) => setPointsToUse(e.target.value)}
+              inputProps={{ min: 0, max: maxPoints, inputMode: "numeric" }}
+              helperText={pointsUsed > 0 ? `${naira(pointsDiscount)} off this sale` : "Enter how many points to use"} />
+          )}
+        </Paper>
       )}
 
       {/* Method */}
@@ -603,9 +639,23 @@ const SalesPage = () => {
   );
 
   const totalBlock = (
-    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", py: 1.25 }}>
-      <Typography fontWeight={700}>Total</Typography>
-      <Typography variant="h5" fontWeight={800} color="primary">{formatCurrency(totalAmount)}</Typography>
+    <Box sx={{ py: 1.25 }}>
+      {pointsDiscount > 0 && (
+        <>
+          <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+            <Typography variant="body2" color="text.secondary">Subtotal</Typography>
+            <Typography variant="body2">{formatCurrency(grossTotal)}</Typography>
+          </Box>
+          <Box sx={{ display: "flex", justifyContent: "space-between", color: "success.main" }}>
+            <Typography variant="body2">Points used ({pointsUsed.toLocaleString("en-NG")})</Typography>
+            <Typography variant="body2" fontWeight={700}>-{formatCurrency(pointsDiscount)}</Typography>
+          </Box>
+        </>
+      )}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <Typography fontWeight={700}>Total</Typography>
+        <Typography variant="h5" fontWeight={800} color="primary">{formatCurrency(totalAmount)}</Typography>
+      </Box>
     </Box>
   );
 

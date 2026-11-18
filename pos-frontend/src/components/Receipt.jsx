@@ -1,5 +1,6 @@
 import React, { forwardRef } from "react";
 import { lineQuantity, lineTotal, paymentLines } from "../utils/receiptText";
+import { pointsEarned } from "../utils/loyalty";
 
 const Receipt = forwardRef(({ sale, store }, ref) => {
   if (!sale) return null;
@@ -9,10 +10,11 @@ const Receipt = forwardRef(({ sale, store }, ref) => {
   const items = sale.items || [];
   const customer = sale.customer;
   
-  // Calculate loyalty points (1 point per ₦100 spent)
-  const loyaltyPointsEarned = Math.floor(total / 100);
+  // Points follow the store's own rule (Settings → Loyalty), the same one the server uses
+  const used = parseInt(sale.points_redeemed) || 0;
+  const loyaltyPointsEarned = sale.points_earned ?? pointsEarned(total, store);
   const currentCustomerPoints = customer ? parseInt(customer.loyalty_points) || 0 : 0;
-  const totalPointsAfterSale = currentCustomerPoints + loyaltyPointsEarned;
+  const totalPointsAfterSale = currentCustomerPoints - used + loyaltyPointsEarned;
 
   return (
     <div ref={ref} style={{
@@ -127,6 +129,12 @@ const Receipt = forwardRef(({ sale, store }, ref) => {
           <strong>Subtotal:</strong>
           <strong>₦{total.toFixed(2)}</strong>
         </div>
+        {Number(sale.points_discount) > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+            <span>Points discount:</span>
+            <span>-₦{Number(sale.points_discount).toFixed(2)}</span>
+          </div>
+        )}
         {paymentLines(sale).map(([label, amount]) => (
           <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
             <span>{label}:</span>
@@ -141,6 +149,7 @@ const Receipt = forwardRef(({ sale, store }, ref) => {
           <hr style={{ border: '1px dashed #000', margin: '6px 0' }} />
           <div style={{ textAlign: 'center', fontSize: '9px' }}>
             <div style={{ fontWeight: 'bold' }}>LOYALTY POINTS</div>
+            {used > 0 && <div>Used: -{used} (₦{Number(sale.points_discount || 0).toFixed(2)} off)</div>}
             <div>Earned: +{loyaltyPointsEarned}</div>
             <div>Total: {totalPointsAfterSale}</div>
           </div>

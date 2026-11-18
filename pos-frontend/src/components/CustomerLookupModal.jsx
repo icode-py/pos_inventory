@@ -13,6 +13,8 @@ import {
   Loyalty as LoyaltyIcon
 } from '@mui/icons-material';
 import axiosInstance from '../utils/axiosInstance';
+import { useStore } from '../context/StoreContext';
+import { loyaltyTier } from '../utils/loyalty';
 
 const CustomerLookupModal = ({ open, onClose, onSelectCustomer, onAddNewCustomer }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,10 +67,11 @@ const CustomerLookupModal = ({ open, onClose, onSelectCustomer, onAddNewCustomer
     onClose();
   };
 
+  const { store } = useStore();
+  // Tiers follow the store's own rules (Settings → Loyalty)
   const getLoyaltyTier = (points) => {
-    if (points >= 1000) return { label: 'Gold', color: 'warning' };
-    if (points >= 500) return { label: 'Silver', color: 'default' };
-    return { label: 'Bronze', color: 'secondary' };
+    const t = loyaltyTier(points, store);
+    return { label: t.label, color: t.label === 'Gold' ? 'warning' : t.label === 'Silver' ? 'default' : 'secondary' };
   };
 
   return (

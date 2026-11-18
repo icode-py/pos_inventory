@@ -505,9 +505,9 @@ const Layout = ({ children }) => {
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
         sx={{ mt: 1, '& .MuiPaper-root': { borderRadius: 2, boxShadow: 4 } }}
       >
-        <MenuItem onClick={() => { navigate('/profile'); handleProfileMenuClose(); }}>
+        <MenuItem onClick={() => { navigate('/settings?tab=account'); handleProfileMenuClose(); }}>
           <ListItemIcon><AccountCircleIcon fontSize="small" /></ListItemIcon>
-          <ListItemText>My Profile</ListItemText>
+          <ListItemText>My account</ListItemText>
         </MenuItem>
         <Divider />
         <MenuItem onClick={handleLogout} sx={{ color: 'error.main' }}>

@@ -128,13 +128,6 @@ class ObjectIsolationTests(TenantTestCase):
         self.b['product'].refresh_from_db()
         self.assertEqual(self.b['product'].stock, 5)
 
-    def test_redeem_points_of_other_store_customer(self):
-        response = self.client.post(
-            '/api/redeem-points/', {'customer_id': self.b['customer'].pk, 'points_to_redeem': 10}, format='json')
-        self.assertEqual(response.status_code, 404)
-        self.b['customer'].refresh_from_db()
-        self.assertEqual(self.b['customer'].loyalty_points, 50)
-
     def test_staff_actions_on_other_store(self):
         pk = self.b['cashier'].pk
         self.assertEqual(self.client.patch(f'/api/staff/{pk}/update/', {'is_active': False}, format='json').status_code, 404)
@@ -228,8 +221,9 @@ class WriteIsolationTests(TenantTestCase):
         self.assertEqual(self.client.post('/api/sales/', payload, format='json').status_code, 400)
 
     def test_loyalty_points_use_own_store_settings(self):
-        LoyaltySettings.objects.filter(store=self.a['store']).update(points_per_amount=10)
-        LoyaltySettings.objects.filter(store=self.b['store']).delete()
+        Store.objects.filter(pk=self.a['store'].pk).update(loyalty_amount_per_point=10)  # 1 point per ₦10
+        Store.objects.filter(pk=self.b['store'].pk).update(loyalty_amount_per_point=1)
+        self.client.force_authenticate(Staff.objects.get(pk=self.a['admin'].pk))
         payload = self.sale_payload(self.a['product'], customer_id=self.a['customer'].pk)
         self.assertEqual(self.client.post('/api/sales/', payload, format='json').status_code, 201)
         self.a['customer'].refresh_from_db()
@@ -1126,3 +1120,145 @@ class DashboardDataTests(TenantTestCase):
         today = self.client.get('/api/sales/', {'today': 1}).data
         self.assertNotIn(old.pk, [r['id'] for r in today])
         self.assertEqual(len(self.client.get('/api/sales/', {'limit': 1}).data), 1)
+
+
+class LoyaltyRedemptionTests(TenantTestCase):
+    """Customers spend points at the till; the discount is part of the sale."""
+
+    def setUp(self):
+        super().setUp()
+        BulkDiscount.objects.filter(store=self.a['store']).delete()
+        Product.objects.filter(pk=self.a['product'].pk).update(stock=100)
+        Customer.objects.filter(pk=self.a['customer'].pk).update(loyalty_points=300)
+        self.client.force_authenticate(self.a['cashier'])
+
+    def sell(self, points=0, total=None, quantity=2, **extra):
+        lines = 500 * quantity
+        total = lines - points if total is None else total  # 1 point = ₦1 by default
+        return self.client.post('/api/sales/', {
+            'total_amount': total, 'paid_amount': total, 'change_given': 0, 'customer_id': self.a['customer'].pk,
+            'points_redeemed': points,
+            'items': [{'product_id': self.a['product'].pk, 'quantity': quantity, 'price_at_sale': 500}], **extra,
+        }, format='json')
+
+    def points(self):
+        return Customer.objects.get(pk=self.a['customer'].pk).loyalty_points
+
+    def test_points_take_money_off_and_are_used_up(self):
+        response = self.sell(points=200)
+        self.assertEqual(response.status_code, 201, response.content)
+        sale = SaleTransaction.objects.get(pk=response.data['id'])
+        self.assertEqual((sale.points_redeemed, sale.points_discount, sale.total_amount), (200, 200, 800))
+        # 300 - 200 used + 8 earned on the 800 paid (1 point per ₦100)
+        self.assertEqual(self.points(), 108)
+        self.assertEqual(CustomerTransaction.objects.get(sale=sale).points_redeemed, 200)
+
+    def test_cannot_use_more_points_than_held_or_negative(self):
+        self.assertEqual(self.sell(points=301).status_code, 400)
+        self.assertEqual(self.sell(points=-50, total=1050).status_code, 400)
+        self.assertEqual(self.points(), 300)
+
+    def test_discount_must_match_the_total(self):
+        self.assertEqual(self.sell(points=200, total=500).status_code, 400)  # took off more than the points cover
+
+    def test_points_need_customer_and_loyalty_on(self):
+        response = self.client.post('/api/sales/', {
+            'total_amount': 900, 'paid_amount': 900, 'change_given': 0, 'points_redeemed': 100,
+            'items': [{'product_id': self.a['product'].pk, 'quantity': 2, 'price_at_sale': 500}]}, format='json')
+        self.assertEqual(response.status_code, 400)
+        Store.objects.filter(pk=self.a['store'].pk).update(loyalty_enabled=False)
+        self.client.force_authenticate(Staff.objects.get(pk=self.a['cashier'].pk))
+        self.assertEqual(self.sell(points=100).status_code, 400)
+
+    def test_old_redeem_endpoint_is_gone_and_points_cannot_be_edited(self):
+        self.assertEqual(self.client.post('/api/redeem-points/', {'customer_id': self.a['customer'].pk, 'points_to_redeem': -500}, format='json').status_code, 404)
+        self.client.patch(f"/api/customers/{self.a['customer'].pk}/", {'loyalty_points': 99999}, format='json')
+        self.assertEqual(self.points(), 300)
+
+
+class StaffRuleTests(TenantTestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.manager = Staff.objects.create_user('alpha_mgr', password='pw12345', store=self.a['store'], is_manager=True)
+        self.manager2 = Staff.objects.create_user('alpha_mgr2', password='pw12345', store=self.a['store'], is_manager=True)
+
+    def test_only_the_owner_manages_managers(self):
+        self.client.force_authenticate(self.manager)
+        self.assertEqual(self.client.patch(f'/api/staff/{self.manager2.pk}/update/', {'is_active': False}, format='json').status_code, 403)
+        self.assertEqual(self.client.post(f'/api/staff/{self.manager2.pk}/reset-password/', {'new_password': 'whatever1'}, format='json').status_code, 403)
+        self.assertEqual(self.client.delete(f'/api/staff/{self.manager2.pk}/delete/').status_code, 403)
+        # managers still look after cashiers
+        self.assertEqual(self.client.patch(f"/api/staff/{self.a['cashier'].pk}/update/", {'first_name': 'Ada'}, format='json').status_code, 200)
+        self.client.force_authenticate(self.a['admin'])
+        self.assertEqual(self.client.patch(f'/api/staff/{self.manager2.pk}/update/', {'is_active': False}, format='json').status_code, 200)
+
+    def test_staff_with_sales_are_deactivated_not_deleted(self):
+        response = self.client.delete(f"/api/staff/{self.a['cashier'].pk}/delete/")
+        self.assertEqual((response.status_code, response.data['can_deactivate']), (409, True))
+        self.assertTrue(Staff.objects.filter(pk=self.a['cashier'].pk).exists())
+        self.assertEqual(self.client.delete(f'/api/staff/{self.manager2.pk}/delete/').status_code, 200)
+
+    def test_cashier_limit_applies_to_every_change(self):
+        Store.objects.filter(pk=self.a['store'].pk).update(plan_tier='STARTER')  # 1 cashier
+        self.client.force_authenticate(Staff.objects.get(pk=self.a['admin'].pk))
+        self.assertEqual(self.client.patch(f'/api/staff/{self.manager2.pk}/update/', {'is_manager': False, 'is_cashier': True}, format='json').status_code, 403)
+        Staff.objects.filter(pk=self.a['cashier'].pk).update(is_active=False)
+        self.assertEqual(self.client.patch(f'/api/staff/{self.manager2.pk}/update/', {'is_manager': False, 'is_cashier': True}, format='json').status_code, 200)
+        self.assertEqual(self.client.patch(f"/api/staff/{self.a['cashier'].pk}/update/", {'is_active': True}, format='json').status_code, 403)
+
+    def test_display_name_and_no_role_refused(self):
+        response = self.client.post('/api/register-staff/', {'username': 'ngozi', 'first_name': 'Ngozi', 'password': 'pw12345',
+                                                             'confirm_password': 'pw12345', 'is_cashier': True}, format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(Staff.objects.get(username='ngozi').first_name, 'Ngozi')
+        self.assertEqual(self.client.patch(f'/api/staff/{self.manager2.pk}/update/', {'is_manager': False, 'is_cashier': False}, format='json').status_code, 400)
+
+    def test_change_my_password(self):
+        self.client.force_authenticate(self.a['cashier'])
+        url = '/api/me/password/'
+        self.assertEqual(self.client.post(url, {'current_password': 'wrong', 'new_password': 'newpass1'}, format='json').status_code, 400)
+        self.assertEqual(self.client.post(url, {'current_password': 'pw12345', 'new_password': '123'}, format='json').status_code, 400)
+        self.assertEqual(self.client.post(url, {'current_password': 'pw12345', 'new_password': 'newpass1'}, format='json').status_code, 200)
+        self.assertTrue(Staff.objects.get(pk=self.a['cashier'].pk).check_password('newpass1'))
+
+
+class AdminPagesTests(TenantTestCase):
+
+    def test_customer_last_visit_and_export(self):
+        row = next(c for c in self.client.get('/api/customers/').data if c['id'] == self.a['customer'].pk)
+        self.assertIsNotNone(row['last_visit'])
+        csv_text = self.client.get('/api/customers/export/').content.decode()
+        self.assertIn('alpha Cust', csv_text)
+        self.assertNotIn('bravo Cust', csv_text)
+        self.client.force_authenticate(self.a['cashier'])
+        self.assertEqual(self.client.get('/api/customers/export/').status_code, 403)
+        self.assertEqual(self.client.delete(f"/api/customers/{self.a['customer'].pk}/").status_code, 403)
+
+    def test_audit_log_filters(self):
+        AuditLog.objects.create(store=self.a['store'], action='UPDATE', model_name='Product', object_id='1', object_repr='Special Coke', changed_by=self.a['admin'])
+        rows = self.client.get('/api/audit-log/', {'search': 'special'}).data['results']
+        self.assertEqual([r['object_repr'] for r in rows], ['Special Coke'])
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        self.assertEqual(self.client.get('/api/audit-log/', {'start_date': tomorrow}).data['count'], 0)
+
+    def test_review_history_and_note(self):
+        held = RefusedSale.objects.create(store=self.a['store'], cashier=self.a['cashier'], client_ref='r1', reason='Insufficient stock',
+                                          sold_at=timezone.now(), payload={'total_amount': 500, 'paid_amount': 500, 'change_given': 0,
+                                          'items': [{'product_id': self.a['product'].pk, 'quantity': 1, 'price_at_sale': 500}]})
+        pending = self.client.get('/api/refused-sales/').data
+        self.assertEqual((pending[0]['kind'], pending[0]['items'][0]['charged'], pending[0]['items'][0]['listed']), ('stock', 500, 500))
+        self.client.post(f'/api/refused-sales/{held.pk}/dismiss/', {'note': 'Customer returned it'}, format='json')
+        self.assertEqual(self.client.get('/api/refused-sales/').data, [])
+        history = self.client.get('/api/refused-sales/', {'status': 'reviewed'}).data
+        self.assertEqual((history[0]['status'], history[0]['review_note'], history[0]['reviewed_by']), ('DISMISSED', 'Customer returned it', 'alpha_admin'))
+
+    def test_store_settings_rules_and_low_stock_level(self):
+        url = '/api/store-settings/update/'
+        self.assertEqual(self.client.patch(url, {'loyalty_silver_points': 900, 'loyalty_gold_points': 800}, format='json').status_code, 400)
+        self.assertEqual(self.client.patch(url, {'loyalty_point_value': 0}, format='json').status_code, 400)
+        self.assertEqual(self.client.patch(url, {'low_stock_threshold': 3, 'loyalty_amount_per_point': 200}, format='json').status_code, 200)
+        self.client.force_authenticate(Staff.objects.get(pk=self.a['admin'].pk))
+        # the fixture product has 5 in stock: low at 10, not low at 3
+        self.assertEqual(self.client.get('/api/low-stock-alerts/').data['count'], 0)
+        self.assertEqual(self.client.get('/api/analytics/stock/').data['settings']['low_stock_threshold'], 3)

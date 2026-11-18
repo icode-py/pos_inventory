@@ -20,13 +20,15 @@ export function buildReceiptText(sale, store) {
   });
 
   lines.push('--------------------------');
+  if (Number(sale.points_discount) > 0) lines.push(`Points discount: -${naira(sale.points_discount)}`);
   lines.push(`Total: ${naira(sale.total_amount || sale.total)}`);
   paymentLines(sale).forEach(([label, amount]) => lines.push(`${label}: ${naira(amount)}`));
 
   if (sale.customer) {
-    const earned = Math.floor(parseFloat(sale.total_amount || sale.total || 0) / 100);
+    const earned = sale.points_earned ?? Math.floor(parseFloat(sale.total_amount || sale.total || 0) / 100);
+    const used = parseInt(sale.points_redeemed) || 0;
     const current = parseInt(sale.customer.loyalty_points) || 0;
-    lines.push(`Loyalty points: +${earned} (total ${current + earned})`);
+    lines.push(`Loyalty points: ${used ? `-${used} used, ` : ''}+${earned} earned (total ${current - used + earned})`);
   }
 
   lines.push('--------------------------');

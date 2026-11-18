@@ -9,6 +9,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "r
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 import { useStore } from "../context/StoreContext";
+import { lowStockLevel } from "../utils/loyalty";
 import axiosInstance from "../utils/axiosInstance";
 import AddProductModal from "../components/AddProductModal";
 import CategoryManagerModal from "../components/CategoryManagerModal";
@@ -25,7 +26,7 @@ import {
 } from "@mui/icons-material";
 
 const BRAND_GRADIENT = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
-const LOW_STOCK = 10;
+let LOW_STOCK = 10; // replaced by the store's own level on each render
 const PAGE = 30;
 
 const naira = (n, d = 0) => `₦${Number(n || 0).toLocaleString("en-NG", { minimumFractionDigits: d, maximumFractionDigits: 2 })}`;
@@ -98,7 +99,8 @@ function ProductsPage() {
   const navigate = useNavigate();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const { user } = useContext(AuthContext);
-  const { hasFeature } = useStore();
+  const { hasFeature, store } = useStore();
+  LOW_STOCK = lowStockLevel(store);
   const canWrite = user?.role === "admin" || user?.role === "manager";
   const canBulkUpload = canWrite && hasFeature("bulk_upload");
 

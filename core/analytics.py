@@ -329,9 +329,10 @@ def stock_insights(request):
     from django.db.models import Max
 
     from .models import Product
-    from .views import LOW_STOCK_THRESHOLD
+    from .views import low_stock_level
 
     store = current_store(request)
+    LOW_STOCK_THRESHOLD = low_stock_level(store)
     with_profit = plan_has_feature('margin_analytics', request)
     now = timezone.now()
     since = now - timedelta(days=SALES_WINDOW_DAYS)

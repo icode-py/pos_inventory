@@ -1,518 +1,254 @@
-import { useState, useEffect, useContext } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
-  Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Chip, IconButton, Button, TextField, Dialog,
-  DialogTitle, DialogContent, DialogActions, FormControl, InputLabel,
-  Select, MenuItem, Alert, CircularProgress, Tooltip, Snackbar,
-  InputAdornment, Switch, FormControlLabel,
-} from '@mui/material';
+  Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
+  DialogTitle, FormControlLabel, Grid, IconButton, ListItemIcon, Menu, MenuItem, Snackbar, Switch, TextField, Typography, useTheme,
+} from "@mui/material";
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Lock as LockIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  ManageAccounts as ManageAccountsIcon,
-  PersonAdd as PersonAddIcon,
-} from '@mui/icons-material';
-import { AuthContext } from '../context/AuthContext';
-import axiosInstance from '../utils/axiosInstance';
+  ManageAccounts as StaffIcon, PersonAdd as AddIcon, MoreVert as MoreIcon, Edit as EditIcon, Lock as LockIcon,
+  Delete as DeleteIcon, Block as DeactivateIcon, CheckCircle as ActivateIcon, PointOfSale as CashierIcon,
+  SupervisorAccount as ManagerIcon, PersonOff as InactiveIcon, Groups as ActiveIcon,
+} from "@mui/icons-material";
+import { AuthContext } from "../context/AuthContext";
+import { useStore, TIER_LABELS } from "../context/StoreContext";
+import axiosInstance from "../utils/axiosInstance";
+import { BRAND_GRADIENT, EmptyState, PageHeader, StatTile, count, initials, naira, timeAgo } from "../components/PagePieces";
 
-function getRoleInfo(member) {
-  if (member.is_admin)   return { label: 'Admin',   color: 'error' };
-  if (member.is_manager) return { label: 'Manager', color: 'warning' };
-  if (member.is_cashier) return { label: 'Cashier', color: 'primary' };
-  return { label: 'Staff', color: 'default' };
-}
-
-function roleToFlags(role) {
-  return { is_cashier: role === 'cashier', is_manager: role === 'manager' };
-}
-
-function flagsToRole(member) {
-  if (member.is_manager) return 'manager';
-  if (member.is_cashier) return 'cashier';
-  return 'staff';
-}
-
-const EMPTY_ADD = { username: '', password: '', confirm_password: '', role: 'cashier' };
-const EMPTY_PW  = { new_password: '', confirm_password: '' };
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const roleOf = (m) => (m.is_admin ? "Owner" : m.is_manager ? "Manager" : m.is_cashier ? "Cashier" : "No role");
+const errorText = (err) => {
+  const d = err.response?.data;
+  if (!d || typeof d !== "object") return err.response ? "Something went wrong" : "No connection";
+  return d.error || Object.values(d).flat().join(" ");
+};
 
 export default function StaffPage() {
+  const theme = useTheme();
   const { user } = useContext(AuthContext);
-  const isAdmin = user?.role === 'admin';
-
-  const [staff,   setStaff]   = useState([]);
+  const { store, cashierLimit } = useStore();
+  const isOwner = user?.role === "admin";
+  const [staff, setStaff] = useState([]);
+  const [sales, setSales] = useState({});
   const [loading, setLoading] = useState(true);
-  const [search,  setSearch]  = useState('');
+  const [dialog, setDialog] = useState(null); // { type: add|edit|password, member?, form }
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [menu, setMenu] = useState({ anchor: null, member: null });
+  const [snack, setSnack] = useState({ open: false, message: "", severity: "success" });
+  const notify = (message, severity = "success") => setSnack({ open: true, message, severity });
 
-  // Add dialog
-  const [addOpen,  setAddOpen]  = useState(false);
-  const [addForm,  setAddForm]  = useState(EMPTY_ADD);
-  const [addSaving, setAddSaving] = useState(false);
-  const [addError, setAddError] = useState('');
-
-  // Edit dialog
-  const [editOpen,   setEditOpen]   = useState(false);
-  const [editTarget, setEditTarget] = useState(null);
-  const [editRole,   setEditRole]   = useState('cashier');
-  const [editActive, setEditActive] = useState(true);
-  const [editSaving, setEditSaving] = useState(false);
-  const [editError,  setEditError]  = useState('');
-
-  // Reset password dialog
-  const [pwOpen,   setPwOpen]   = useState(false);
-  const [pwTarget, setPwTarget] = useState(null);
-  const [pwForm,   setPwForm]   = useState(EMPTY_PW);
-  const [pwSaving, setPwSaving] = useState(false);
-  const [pwError,  setPwError]  = useState('');
-
-  // Delete dialog
-  const [deleteOpen,   setDeleteOpen]   = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleteSaving, setDeleteSaving] = useState(false);
-  const [deleteError,  setDeleteError]  = useState('');
-
-  const [snack, setSnack] = useState({ open: false, message: '', severity: 'success' });
-
-  const fetchStaff = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    try {
-      const res = await axiosInstance.get('/staff/');
-      setStaff(Array.isArray(res.data) ? res.data : []);
-    } catch {
-      setSnack({ open: true, message: 'Failed to load staff', severity: 'error' });
-    } finally {
-      setLoading(false);
-    }
+    const now = new Date();
+    const [list, month] = await Promise.allSettled([
+      axiosInstance.get("/staff/"),
+      axiosInstance.get("analytics/", { params: { start_date: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), end_date: ymd(now) } }),
+    ]);
+    if (list.status === "fulfilled") setStaff(list.value.data);
+    else notify(errorText(list.reason), "error");
+    if (month.status === "fulfilled") setSales(Object.fromEntries(month.value.data.cashiers.map((c) => [c.id, c])));
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const isMe = (m) => String(m.id) === String(user?.user_id);
+  // Managers look after cashiers; only the owner looks after managers
+  const canManage = (m) => !isMe(m) && !m.is_admin && (isOwner || !m.is_manager);
+
+  const stats = useMemo(() => ({
+    active: staff.filter((m) => m.is_active).length,
+    cashiers: staff.filter((m) => m.is_active && m.is_cashier).length,
+    managers: staff.filter((m) => m.is_active && (m.is_manager || m.is_admin)).length,
+    inactive: staff.filter((m) => !m.is_active).length,
+  }), [staff]);
+
+  const sorted = useMemo(() => [...staff].sort((a, b) => (b.is_active - a.is_active)
+    || ((b.is_admin * 2 + b.is_manager) - (a.is_admin * 2 + a.is_manager)) || a.username.localeCompare(b.username)), [staff]);
+
+  const open = (type, member) => {
+    setError("");
+    setDialog({
+      type, member,
+      form: type === "add" ? { first_name: "", username: "", role: "cashier", password: "", confirm: "" }
+        : type === "edit" ? { first_name: member.first_name || "", role: member.is_manager ? "manager" : "cashier", active: member.is_active }
+          : { password: "", confirm: "" },
+    });
   };
+  const setForm = (patch) => setDialog((d) => ({ ...d, form: { ...d.form, ...patch } }));
 
-  useEffect(() => { fetchStaff(); }, []);
-
-  const filtered = staff.filter(s =>
-    s.username.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const showSnack = (message, severity = 'success') =>
-    setSnack({ open: true, message, severity });
-
-  const canEdit = (member) =>
-    !member.is_admin && member.id !== user?.user_id;
-
-  // ── Add Staff ──
-  const handleAdd = async () => {
-    setAddSaving(true);
-    setAddError('');
+  const submit = async () => {
+    const { type, member, form } = dialog;
+    setSaving(true);
+    setError("");
     try {
-      await axiosInstance.post('/register-staff/', {
-        username: addForm.username,
-        password: addForm.password,
-        confirm_password: addForm.confirm_password,
-        ...roleToFlags(addForm.role),
-      });
-      setAddOpen(false);
-      setAddForm(EMPTY_ADD);
-      showSnack(`${addForm.username} added successfully`);
-      fetchStaff();
+      if (type === "add") {
+        await axiosInstance.post("/register-staff/", {
+          username: form.username.trim(), first_name: form.first_name.trim(), password: form.password, confirm_password: form.confirm,
+          is_cashier: form.role === "cashier", is_manager: form.role === "manager",
+        });
+        notify(`${form.first_name || form.username} can now log in`);
+      } else if (type === "edit") {
+        await axiosInstance.patch(`/staff/${member.id}/update/`, {
+          first_name: form.first_name.trim(), is_cashier: form.role === "cashier", is_manager: form.role === "manager", is_active: form.active,
+        });
+        notify(`${member.username} updated`);
+      } else {
+        await axiosInstance.post(`/staff/${member.id}/reset-password/`, { new_password: form.password });
+        notify(`New password set for ${member.username}`);
+      }
+      setDialog(null);
+      load();
     } catch (err) {
-      const d = err.response?.data;
-      setAddError(d ? Object.values(d).flat().join(' ') : 'Failed to add staff');
+      setError(errorText(err));
     } finally {
-      setAddSaving(false);
+      setSaving(false);
     }
   };
 
-  const addValid =
-    addForm.username.length >= 3 &&
-    addForm.password.length >= 6 &&
-    addForm.password === addForm.confirm_password;
-
-  // ── Edit Role / Status ──
-  const openEdit = (member) => {
-    setEditTarget(member);
-    setEditRole(flagsToRole(member));
-    setEditActive(member.is_active);
-    setEditError('');
-    setEditOpen(true);
-  };
-
-  const handleEdit = async () => {
-    setEditSaving(true);
-    setEditError('');
+  const setActive = async (m, active) => {
+    if (!active && !window.confirm(`Deactivate ${m.first_name || m.username}? They won't be able to log in. Their past sales keep their name.`)) return;
     try {
-      const res = await axiosInstance.patch(`/staff/${editTarget.id}/update/`, {
-        ...roleToFlags(editRole),
-        is_active: editActive,
-      });
-      setEditOpen(false);
-      setStaff(prev => prev.map(s => s.id === editTarget.id ? res.data : s));
-      showSnack(`${editTarget.username} updated`);
+      await axiosInstance.patch(`/staff/${m.id}/update/`, { is_active: active });
+      notify(active ? `${m.username} can log in again` : `${m.username} deactivated`);
+      load();
     } catch (err) {
-      const d = err.response?.data;
-      setEditError(d?.error || Object.values(d || {}).flat().join(' ') || 'Failed to update');
-    } finally {
-      setEditSaving(false);
+      notify(errorText(err), "error");
     }
   };
 
-  // ── Reset Password ──
-  const openPw = (member) => {
-    setPwTarget(member);
-    setPwForm(EMPTY_PW);
-    setPwError('');
-    setPwOpen(true);
-  };
-
-  const handlePw = async () => {
-    if (pwForm.new_password !== pwForm.confirm_password) {
-      setPwError("Passwords don't match");
-      return;
-    }
-    setPwSaving(true);
-    setPwError('');
+  const remove = async (m) => {
+    if (!window.confirm(`Delete ${m.username} for good?`)) return;
     try {
-      await axiosInstance.post(`/staff/${pwTarget.id}/reset-password/`, {
-        new_password: pwForm.new_password,
-      });
-      setPwOpen(false);
-      showSnack(`Password reset for ${pwTarget.username}`);
+      await axiosInstance.delete(`/staff/${m.id}/delete/`);
+      notify(`${m.username} deleted`);
+      load();
     } catch (err) {
-      const d = err.response?.data;
-      setPwError(d?.error || 'Failed to reset password');
-    } finally {
-      setPwSaving(false);
+      if (err.response?.data?.can_deactivate) {
+        if (window.confirm(`${errorText(err)}\n\nDeactivate ${m.username} now?`)) setActive(m, false);
+      } else notify(errorText(err), "error");
     }
   };
 
-  const pwValid =
-    pwForm.new_password.length >= 6 &&
-    pwForm.new_password === pwForm.confirm_password;
-
-  // ── Delete Staff ──
-  const openDelete = (member) => {
-    setDeleteTarget(member);
-    setDeleteError('');
-    setDeleteOpen(true);
-  };
-
-  const handleDelete = async () => {
-    setDeleteSaving(true);
-    setDeleteError('');
-    try {
-      await axiosInstance.delete(`/staff/${deleteTarget.id}/delete/`);
-      setDeleteOpen(false);
-      setStaff(prev => prev.filter(s => s.id !== deleteTarget.id));
-      showSnack(`${deleteTarget.username} deleted`);
-    } catch (err) {
-      const d = err.response?.data;
-      setDeleteError(d?.error || 'Failed to delete staff account');
-    } finally {
-      setDeleteSaving(false);
-    }
-  };
+  const f = dialog?.form;
+  const passwordOk = f && (dialog.type === "edit" || (f.password.length >= 6 && f.password === f.confirm));
+  const valid = f && passwordOk && (dialog.type !== "add" || /^[a-zA-Z0-9_]{3,}$/.test(f.username.trim()));
+  const limitText = cashierLimit == null ? "unlimited on your plan" : `${stats.cashiers} of ${cashierLimit} on ${TIER_LABELS[store.plan_tier] || store.plan_tier}`;
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <ManageAccountsIcon color="primary" sx={{ fontSize: 32 }} />
-          <Typography variant="h5" fontWeight="bold">Staff Management</Typography>
-        </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => { setAddForm(EMPTY_ADD); setAddError(''); setAddOpen(true); }}
-        >
-          Add Staff
-        </Button>
-      </Box>
+    <Box sx={{ p: { xs: 1.5, sm: 2, md: 3 }, maxWidth: 1300, mx: "auto" }}>
+      <PageHeader icon={StaffIcon} title="Staff" subtitle="Who can log in, what they can do, and how they're selling."
+        onRefresh={load} loading={loading}
+        actions={<Button variant="contained" startIcon={<AddIcon />} onClick={() => open("add")} sx={{ background: BRAND_GRADIENT }}>Add staff</Button>} />
 
-      {/* Search */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <TextField
-          placeholder="Search by username..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          size="small"
-          sx={{ width: 320 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start"><SearchIcon /></InputAdornment>
-            ),
-          }}
-        />
-      </Paper>
+      <Grid container spacing={1.5} sx={{ mb: 2 }}>
+        <Grid size={{ xs: 6, md: 3 }}><StatTile label="Active" value={count(stats.active)} note="can log in" icon={ActiveIcon} color={theme.palette.success.main} /></Grid>
+        <Grid size={{ xs: 6, md: 3 }}><StatTile label="Cashiers" value={count(stats.cashiers)} note={limitText} icon={CashierIcon} color={theme.palette.primary.main} /></Grid>
+        <Grid size={{ xs: 6, md: 3 }}><StatTile label="Managers" value={count(stats.managers)} note="incl. the owner" icon={ManagerIcon} color={theme.palette.secondary.main} /></Grid>
+        <Grid size={{ xs: 6, md: 3 }}><StatTile label="Deactivated" value={count(stats.inactive)} note="kept for history" icon={InactiveIcon} color={theme.palette.grey[500]} /></Grid>
+      </Grid>
 
-      {/* Table */}
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow sx={{ '& th': { fontWeight: 'bold', bgcolor: 'action.hover' } }}>
-              <TableCell>Username</TableCell>
-              <TableCell>Role</TableCell>
-              <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Status</TableCell>
-              <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Joined</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 5 }}>
-                  <CircularProgress size={28} />
-                </TableCell>
-              </TableRow>
-            ) : filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 5, color: 'text.secondary' }}>
-                  {search ? 'No staff match your search' : 'No staff accounts yet'}
-                </TableCell>
-              </TableRow>
-            ) : filtered.map(member => {
-              const role = getRoleInfo(member);
-              const editable = canEdit(member);
-              const isMe = member.id === user?.user_id;
-              return (
-                <TableRow key={member.id} hover>
-                  <TableCell>
-                    <Typography fontWeight={isMe ? 'bold' : 'normal'}>
-                      {member.username}
-                      {isMe && (
-                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                          (you)
+      {loading && !staff.length ? <Box sx={{ textAlign: "center", py: 6 }}><CircularProgress /></Box> : sorted.length === 0 ? (
+        <EmptyState icon={StaffIcon} title="No staff yet">Add your cashiers so each sale shows who made it.</EmptyState>
+      ) : (
+        <Grid container spacing={1.5}>
+          {sorted.map((m) => {
+            const s = sales[m.id];
+            return (
+              <Grid key={m.id} size={{ xs: 12, sm: 6, lg: 4 }}>
+                <Card sx={{ height: "100%", opacity: m.is_active ? 1 : 0.6 }}>
+                  <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                      <Avatar sx={{ width: 44, height: 44, fontWeight: 800, background: m.is_active ? BRAND_GRADIENT : theme.palette.grey[500] }}>
+                        {initials(m.first_name || m.username)}
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography fontWeight={800} noWrap>
+                          {m.first_name || m.username}{isMe(m) && <Typography component="span" variant="caption" color="text.secondary"> (you)</Typography>}
                         </Typography>
-                      )}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip label={role.label} color={role.color} size="small" />
-                  </TableCell>
-                  <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-                    <Chip
-                      label={member.is_active ? 'Active' : 'Inactive'}
-                      color={member.is_active ? 'success' : 'default'}
-                      size="small"
-                      variant={member.is_active ? 'filled' : 'outlined'}
-                    />
-                  </TableCell>
-                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                    {member.date_joined
-                      ? new Date(member.date_joined).toLocaleDateString()
-                      : '—'}
-                  </TableCell>
-                  <TableCell align="right">
-                    {editable ? (
-                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-                        <Tooltip title="Edit role / status">
-                          <IconButton size="small" color="primary" onClick={() => openEdit(member)}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Reset password">
-                          <IconButton size="small" color="warning" onClick={() => openPw(member)}>
-                            <LockIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete account">
-                          <IconButton size="small" color="error" onClick={() => openDelete(member)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        <Typography variant="caption" color="text.secondary" noWrap component="div">@{m.username} · last login {timeAgo(m.last_login)}</Typography>
                       </Box>
-                    ) : (
-                      <Typography variant="caption" color="text.disabled">—</Typography>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </TableContainer>
+                      {canManage(m) && <IconButton size="small" onClick={(e) => setMenu({ anchor: e.currentTarget, member: m })}><MoreIcon /></IconButton>}
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 0.75, mt: 1.25, flexWrap: "wrap" }}>
+                      <Chip size="small" label={roleOf(m)} color={m.is_admin ? "secondary" : m.is_manager ? "warning" : "primary"} sx={{ fontWeight: 700 }} />
+                      {!m.is_active && <Chip size="small" label="Deactivated" variant="outlined" />}
+                    </Box>
+                    <Box sx={{ display: "flex", gap: 2, mt: 1.5 }}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Sales this month</Typography>
+                        <Typography fontWeight={800}>{naira(s?.revenue)}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Transactions</Typography>
+                        <Typography fontWeight={800}>{count(s?.transactions)}</Typography>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            );
+          })}
+        </Grid>
+      )}
 
-      {/* ── Add Staff Dialog ── */}
-      <Dialog open={addOpen} onClose={() => setAddOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <PersonAddIcon color="primary" />
-            <span>Add Staff Account</span>
-          </Box>
-        </DialogTitle>
-        <DialogContent sx={{ pt: '16px !important', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {addError && <Alert severity="error">{addError}</Alert>}
-          <TextField
-            label="Username"
-            value={addForm.username}
-            onChange={e => setAddForm(p => ({ ...p, username: e.target.value }))}
-            fullWidth
-            required
-            helperText="Min 3 chars — letters, numbers, underscores"
-            autoFocus
-          />
-          <FormControl fullWidth>
-            <InputLabel>Role</InputLabel>
-            <Select
-              value={addForm.role}
-              label="Role"
-              onChange={e => setAddForm(p => ({ ...p, role: e.target.value }))}
-            >
-              <MenuItem value="cashier">Cashier</MenuItem>
-              {isAdmin && <MenuItem value="manager">Manager</MenuItem>}
-            </Select>
-          </FormControl>
-          <TextField
-            label="Password"
-            type="password"
-            value={addForm.password}
-            onChange={e => setAddForm(p => ({ ...p, password: e.target.value }))}
-            fullWidth
-            required
-            helperText="Min 6 characters"
-          />
-          <TextField
-            label="Confirm Password"
-            type="password"
-            value={addForm.confirm_password}
-            onChange={e => setAddForm(p => ({ ...p, confirm_password: e.target.value }))}
-            fullWidth
-            required
-            error={addForm.confirm_password !== '' && addForm.password !== addForm.confirm_password}
-            helperText={
-              addForm.confirm_password !== '' && addForm.password !== addForm.confirm_password
-                ? "Passwords don't match"
-                : ''
-            }
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAddOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleAdd}
-            disabled={addSaving || !addValid}
-            startIcon={addSaving ? <CircularProgress size={16} color="inherit" /> : <PersonAddIcon />}
-          >
-            {addSaving ? 'Adding...' : 'Add Staff'}
-          </Button>
-        </DialogActions>
+      {!isOwner && <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 2 }}>Only the store owner can add or change managers.</Typography>}
+
+      <Menu anchorEl={menu.anchor} open={Boolean(menu.anchor)} onClose={() => setMenu({ anchor: null, member: null })}>
+        {menu.member && [
+          <MenuItem key="e" onClick={() => { const m = menu.member; setMenu({ anchor: null }); open("edit", m); }}><ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>Edit name & role</MenuItem>,
+          <MenuItem key="p" onClick={() => { const m = menu.member; setMenu({ anchor: null }); open("password", m); }}><ListItemIcon><LockIcon fontSize="small" /></ListItemIcon>Set new password</MenuItem>,
+          menu.member.is_active
+            ? <MenuItem key="d" onClick={() => { const m = menu.member; setMenu({ anchor: null }); setActive(m, false); }}><ListItemIcon><DeactivateIcon fontSize="small" /></ListItemIcon>Deactivate</MenuItem>
+            : <MenuItem key="a" onClick={() => { const m = menu.member; setMenu({ anchor: null }); setActive(m, true); }}><ListItemIcon><ActivateIcon fontSize="small" /></ListItemIcon>Activate</MenuItem>,
+          <MenuItem key="x" sx={{ color: "error.main" }} onClick={() => { const m = menu.member; setMenu({ anchor: null }); remove(m); }}>
+            <ListItemIcon sx={{ color: "error.main" }}><DeleteIcon fontSize="small" /></ListItemIcon>Delete</MenuItem>,
+        ]}
+      </Menu>
+
+      <Dialog open={Boolean(dialog)} onClose={() => !saving && setDialog(null)} maxWidth="xs" fullWidth>
+        {dialog && (
+          <>
+            <DialogTitle>
+              {dialog.type === "add" ? "Add staff" : dialog.type === "edit" ? `Edit ${dialog.member.username}` : `New password for ${dialog.member.username}`}
+            </DialogTitle>
+            <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "8px !important" }}>
+              {error && <Alert severity="error">{error}</Alert>}
+              {dialog.type !== "password" && (
+                <TextField label="Display name" value={f.first_name} onChange={(e) => setForm({ first_name: e.target.value })}
+                  helperText="Shown in Reports and receipts, e.g. Amaka" autoFocus />
+              )}
+              {dialog.type === "add" && (
+                <TextField label="Username (for logging in)" value={f.username} onChange={(e) => setForm({ username: e.target.value.replace(/\s/g, "") })}
+                  helperText="3+ letters, numbers or _" required />
+              )}
+              {dialog.type !== "password" && (
+                <TextField select label="Role" value={f.role} onChange={(e) => setForm({ role: e.target.value })}
+                  helperText={f.role === "manager" ? "Can see reports, profit, restock, staff and settings" : "Can sell and see their own sales"}>
+                  <MenuItem value="cashier">Cashier</MenuItem>
+                  {isOwner && <MenuItem value="manager">Manager</MenuItem>}
+                </TextField>
+              )}
+              {dialog.type === "edit" && (
+                <FormControlLabel control={<Switch checked={f.active} onChange={(e) => setForm({ active: e.target.checked })} color="success" />}
+                  label={f.active ? "Can log in" : "Deactivated (cannot log in)"} />
+              )}
+              {dialog.type !== "edit" && (
+                <>
+                  <TextField label="Password" type="password" value={f.password} onChange={(e) => setForm({ password: e.target.value })} helperText="At least 6 characters" required />
+                  <TextField label="Confirm password" type="password" value={f.confirm} onChange={(e) => setForm({ confirm: e.target.value })} required
+                    error={f.confirm !== "" && f.confirm !== f.password} helperText={f.confirm !== "" && f.confirm !== f.password ? "Passwords don't match" : " "} />
+                </>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setDialog(null)} disabled={saving}>Cancel</Button>
+              <Button variant="contained" onClick={submit} disabled={!valid || saving}>{saving ? "Saving…" : dialog.type === "add" ? "Add" : "Save"}</Button>
+            </DialogActions>
+          </>
+        )}
       </Dialog>
 
-      {/* ── Edit Role / Status Dialog ── */}
-      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Edit — {editTarget?.username}</DialogTitle>
-        <DialogContent sx={{ pt: '16px !important', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {editError && <Alert severity="error">{editError}</Alert>}
-          <FormControl fullWidth>
-            <InputLabel>Role</InputLabel>
-            <Select value={editRole} label="Role" onChange={e => setEditRole(e.target.value)}>
-              <MenuItem value="cashier">Cashier</MenuItem>
-              {isAdmin && <MenuItem value="manager">Manager</MenuItem>}
-              <MenuItem value="staff">Staff (no specific role)</MenuItem>
-            </Select>
-          </FormControl>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={editActive}
-                onChange={e => setEditActive(e.target.checked)}
-                color="success"
-              />
-            }
-            label={editActive ? 'Account Active' : 'Account Inactive (cannot login)'}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleEdit}
-            disabled={editSaving}
-            startIcon={editSaving ? <CircularProgress size={16} color="inherit" /> : null}
-          >
-            {editSaving ? 'Saving...' : 'Save Changes'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ── Reset Password Dialog ── */}
-      <Dialog open={pwOpen} onClose={() => setPwOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Reset Password — {pwTarget?.username}</DialogTitle>
-        <DialogContent sx={{ pt: '16px !important', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {pwError && <Alert severity="error">{pwError}</Alert>}
-          <TextField
-            label="New Password"
-            type="password"
-            value={pwForm.new_password}
-            onChange={e => setPwForm(p => ({ ...p, new_password: e.target.value }))}
-            fullWidth
-            required
-            helperText="Min 6 characters"
-            autoFocus
-          />
-          <TextField
-            label="Confirm Password"
-            type="password"
-            value={pwForm.confirm_password}
-            onChange={e => setPwForm(p => ({ ...p, confirm_password: e.target.value }))}
-            fullWidth
-            required
-            error={pwForm.confirm_password !== '' && pwForm.new_password !== pwForm.confirm_password}
-            helperText={
-              pwForm.confirm_password !== '' && pwForm.new_password !== pwForm.confirm_password
-                ? "Passwords don't match"
-                : ''
-            }
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPwOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="warning"
-            onClick={handlePw}
-            disabled={pwSaving || !pwValid}
-            startIcon={pwSaving ? <CircularProgress size={16} color="inherit" /> : <LockIcon />}
-          >
-            {pwSaving ? 'Resetting...' : 'Reset Password'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ── Delete Confirmation Dialog ── */}
-      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Delete — {deleteTarget?.username}</DialogTitle>
-        <DialogContent sx={{ pt: '16px !important', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {deleteError && <Alert severity="error">{deleteError}</Alert>}
-          <Alert severity="warning">
-            This will permanently remove <strong>{deleteTarget?.username}</strong>'s account.
-            This action cannot be undone.
-          </Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleDelete}
-            disabled={deleteSaving}
-            startIcon={deleteSaving ? <CircularProgress size={16} color="inherit" /> : <DeleteIcon />}
-          >
-            {deleteSaving ? 'Deleting...' : 'Delete Account'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Snackbar */}
-      <Snackbar
-        open={snack.open}
-        autoHideDuration={4000}
-        onClose={() => setSnack(s => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert severity={snack.severity} onClose={() => setSnack(s => ({ ...s, open: false }))}>
-          {snack.message}
-        </Alert>
+      <Snackbar open={snack.open} autoHideDuration={3500} onClose={() => setSnack((s) => ({ ...s, open: false }))} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
+        <Alert variant="filled" severity={snack.severity} onClose={() => setSnack((s) => ({ ...s, open: false }))}>{snack.message}</Alert>
       </Snackbar>
     </Box>
   );

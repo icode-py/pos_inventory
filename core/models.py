@@ -20,6 +20,15 @@ class Store(models.Model):
     plan_tier       = models.CharField(max_length=10, choices=TIER_CHOICES, default='STARTER')
     is_active       = models.BooleanField(default=True, help_text='Untick to suspend this store. Its staff can no longer log in.')
     created_at      = models.DateTimeField(default=timezone.now, editable=False)
+    # Stock: products at or below this count are "low stock" everywhere in the app
+    low_stock_threshold = models.PositiveIntegerField(default=10)
+    # Loyalty: customers earn 1 point for every `loyalty_amount_per_point` naira spent, and
+    # each point is worth `loyalty_point_value` naira off when they use it at the till
+    loyalty_enabled          = models.BooleanField(default=True)
+    loyalty_amount_per_point = models.DecimalField(max_digits=10, decimal_places=2, default=100)
+    loyalty_point_value      = models.DecimalField(max_digits=10, decimal_places=2, default=1)
+    loyalty_silver_points    = models.PositiveIntegerField(default=500)
+    loyalty_gold_points      = models.PositiveIntegerField(default=2000)
 
     def __str__(self):
         return self.name
@@ -96,6 +105,9 @@ class SaleTransaction(models.Model):
     cash_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     transfer_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     card_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    # Loyalty points the customer used on this sale, and the naira they took off the total
+    points_redeemed = models.PositiveIntegerField(default=0)
+    points_discount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     # Set by the till, so a sale resent after a dropped connection is only recorded once
     client_ref = models.CharField(max_length=64, null=True, blank=True, editable=False)
 
@@ -126,6 +138,7 @@ class RefusedSale(models.Model):
     sale = models.ForeignKey(SaleTransaction, on_delete=models.SET_NULL, null=True, blank=True)
     reviewed_by = models.ForeignKey('Staff', on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_sales')
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(max_length=200, blank=True, default='')
 
     class Meta:
         ordering = ['sold_at']
