@@ -1,557 +1,423 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from "react";
 import {
-  Grid, Card, CardContent, Typography, Box,
-  LinearProgress, Chip, Avatar, List, ListItem,
-  ListItemText, ListItemIcon, Divider, Button,
-  IconButton, useTheme, Alert, Skeleton, Tooltip,
-} from '@mui/material';
+  Alert, Avatar, Box, Button, Card, CardContent, Chip, Grid, IconButton, Paper, Skeleton, Tooltip, Typography, useTheme,
+} from "@mui/material";
+import { alpha } from "@mui/material/styles";
+import { Line } from "react-chartjs-2";
 import {
-  TrendingUp as TrendingUpIcon,
-  ShoppingCart as ShoppingCartIcon,
-  Inventory as InventoryIcon,
-  People as PeopleIcon,
-  AttachMoney as AttachMoneyIcon,
-  Receipt as ReceiptIcon,
-  Warning as WarningIcon,
-  ArrowUpward as ArrowUpwardIcon,
-  ArrowDownward as ArrowDownwardIcon,
-  Refresh as RefreshIcon,
-  ArrowForward as ArrowForwardIcon,
-  Inventory2 as RestockIcon,
-  Assessment as ReportsIcon,
-  CheckCircle as CheckCircleIcon,
-} from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext';
-import axiosInstance from '../utils/axiosInstance';
-import { storeKey } from '../utils/storeKey';
+  Chart as ChartJS, CategoryScale, LinearScale, LineElement, PointElement, Filler, Tooltip as ChartTooltip,
+} from "chart.js";
+import {
+  Refresh as RefreshIcon, PointOfSale as SellIcon, LocalShipping as RestockIcon, Assessment as ReportsIcon,
+  Savings as ProfitIcon, ReceiptLong as ReceiptIcon, ShoppingCart as CartIcon,
+  ArrowUpward, ArrowDownward, Lock as LockIcon, Payments as CashIcon, AccountBalance as BankIcon,
+  CreditCard as CardIcon, HelpOutline as UnknownIcon, RateReview as ReviewIcon, CloudUpload as SyncIcon,
+  RemoveShoppingCart as OutIcon, WarningAmber as WarningIcon, TrendingDown as LossIcon, CheckCircle as OkIcon,
+  EmojiEvents as TrophyIcon, ChevronRight as ChevronIcon, Wallet as WalletIcon, FactCheck as CountIcon,
+} from "@mui/icons-material";
+import { useNavigate } from "react-router-dom";
+import { AuthContext } from "../context/AuthContext";
+import { useOffline } from "../context/OfflineManager";
+import { useStore } from "../context/StoreContext";
+import axiosInstance from "../utils/axiosInstance";
+import { fetchProducts, readCachedProducts } from "../utils/productCache";
 
-// ─── brand gradients ───────────────────────────────────────────────────────────
-const G = {
-  brand:     'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-  sky:       'linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%)',
-  emerald:   'linear-gradient(135deg, #10b981 0%, #047857 100%)',
-  amber:     'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)',
-  rose:      'linear-gradient(135deg, #f43f5e 0%, #be123c 100%)',
+ChartJS.register(CategoryScale, LinearScale, LineElement, PointElement, Filler, ChartTooltip);
+
+const BRAND_GRADIENT = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+const MEDALS = ["#F5B700", "#A0AEC0", "#CD7F32"];
+const naira = (n) => `₦${Number(n || 0).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
+const count = (n) => Number(n || 0).toLocaleString("en-NG");
+const plural = (n, w) => `${count(n)} ${w}${Number(n) === 1 ? "" : "s"}`;
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const ago = (iso) => {
+  const m = Math.floor((Date.now() - new Date(iso)) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h ago` : new Date(iso).toLocaleDateString("en-NG", { day: "numeric", month: "short" });
 };
+const PAY = { CASH: "Cash", TRANSFER: "Transfer", POS: "POS", SPLIT: "Split" };
 
-// ─── Gradient Stat Card ────────────────────────────────────────────────────────
-const StatCard = ({ title, value, subtitle, icon, gradient, trend, onClick, loading }) => (
-  <Card
-    onClick={onClick}
-    sx={{
-      height: '100%',
-      background: gradient,
-      color: 'white',
-      cursor: onClick ? 'pointer' : 'default',
-      position: 'relative',
-      overflow: 'hidden',
-      border: 'none',
-      transition: 'transform 0.22s ease, box-shadow 0.22s ease',
-      '&:hover': onClick ? {
-        transform: 'translateY(-5px)',
-        boxShadow: '0 20px 40px rgba(0,0,0,0.22)',
-      } : {},
-    }}
-  >
-    {/* Decorative blobs */}
-    <Box sx={{ position:'absolute', top:-28, right:-28, width:140, height:140, borderRadius:'50%', background:'rgba(255,255,255,0.08)', pointerEvents:'none' }} />
-    <Box sx={{ position:'absolute', bottom:-18, left:-18, width:90, height:90, borderRadius:'50%', background:'rgba(255,255,255,0.06)', pointerEvents:'none' }} />
+// ── Pieces ───────────────────────────────────────────────────────────────────
+function IconBadge({ icon: Icon, color, size = 34 }) {
+  return (
+    <Box sx={{ width: size, height: size, borderRadius: size > 32 ? 2.5 : 2, flexShrink: 0, display: "grid", placeItems: "center", bgcolor: alpha(color, 0.14), color }}>
+      <Icon sx={{ fontSize: Math.round(size * 0.55) }} />
+    </Box>
+  );
+}
 
-    <CardContent sx={{ position:'relative', zIndex:1, p:'20px !important' }}>
-      <Box sx={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-        <Box sx={{ flex:1, minWidth:0 }}>
-          <Typography sx={{ color:'rgba(255,255,255,0.72)', fontSize:'0.62rem', fontWeight:700, letterSpacing:1.4, textTransform:'uppercase', mb:0.75 }}>
-            {title}
-          </Typography>
-          {loading ? (
-            <Skeleton variant="text" width={120} height={48} sx={{ bgcolor:'rgba(255,255,255,0.15)', borderRadius:1 }} />
-          ) : (
-            <Typography variant="h4" fontWeight="bold" sx={{ color:'white', lineHeight:1.15, fontSize:{ xs:'1.5rem', md:'1.9rem' } }}>
-              {value}
-            </Typography>
-          )}
-          <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.68)', mt:0.75, fontSize:'0.8rem' }}>
-            {subtitle}
-          </Typography>
-        </Box>
-        <Box sx={{
-          bgcolor:'rgba(255,255,255,0.18)',
-          borderRadius:2.5,
-          p:1.3,
-          flexShrink:0,
-          ml:1.5,
-          display:'flex',
-          alignItems:'center',
-          justifyContent:'center',
-        }}>
-          {React.cloneElement(icon, { sx:{ fontSize:26, color:'white' } })}
-        </Box>
-      </Box>
-
-      {trend !== undefined && (
-        <Box sx={{ display:'flex', alignItems:'center', gap:1, mt:2 }}>
-          <Box sx={{ bgcolor:'rgba(255,255,255,0.18)', borderRadius:10, px:1, py:0.3, display:'flex', alignItems:'center', gap:0.4 }}>
-            {trend >= 0
-              ? <ArrowUpwardIcon sx={{ fontSize:11, color:'rgba(255,255,255,0.95)' }} />
-              : <ArrowDownwardIcon sx={{ fontSize:11, color:'rgba(255,255,255,0.7)' }} />
-            }
-            <Typography sx={{ fontSize:'0.63rem', fontWeight:700, color:'rgba(255,255,255,0.95)', lineHeight:1 }}>
-              {Math.abs(trend)}%
-            </Typography>
-          </Box>
-          <Typography sx={{ fontSize:'0.63rem', color:'rgba(255,255,255,0.58)' }}>
-            vs yesterday
-          </Typography>
-        </Box>
-      )}
-    </CardContent>
-  </Card>
-);
-
-// ─── Compact Quick-Action card ─────────────────────────────────────────────────
-const ActionCard = ({ title, description, icon, gradient, onClick }) => (
-  <Card
-    onClick={onClick}
-    sx={{
-      cursor:'pointer',
-      transition:'transform 0.2s ease, box-shadow 0.2s ease',
-      '&:hover': { transform:'translateY(-3px)', boxShadow:'0 12px 28px rgba(0,0,0,0.13)' },
-    }}
-  >
-    <CardContent sx={{ display:'flex', alignItems:'center', gap:2, p:'14px 16px !important' }}>
-      <Box sx={{
-        width:46, height:46, borderRadius:2.5,
-        background: gradient,
-        display:'flex', alignItems:'center', justifyContent:'center',
-        flexShrink:0,
-        boxShadow:'0 4px 14px rgba(0,0,0,0.18)',
-      }}>
-        {React.cloneElement(icon, { sx:{ fontSize:22, color:'white' } })}
-      </Box>
-      <Box sx={{ flex:1, minWidth:0 }}>
-        <Typography variant="subtitle2" fontWeight="bold" sx={{ lineHeight:1.3 }}>{title}</Typography>
-        <Typography variant="caption" color="text.secondary" noWrap sx={{ display:'block' }}>{description}</Typography>
-      </Box>
-      <ArrowForwardIcon sx={{ color:'text.disabled', fontSize:17, flexShrink:0 }} />
-    </CardContent>
-  </Card>
-);
-
-// ─── main component ────────────────────────────────────────────────────────────
-const Dashboard = () => {
-  const { user } = useContext(AuthContext);
-  const [stats, setStats] = useState({
-    todaySales: 0,
-    totalProducts: 0,
-    lowStockItems: 0,
-    totalCustomers: 0,
-    recentSales: [],
-    topProducts: [],
-    inventoryValue: 0,
-    pendingOfflineSales: 0,
-    criticalStockItems: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const navigate = useNavigate();
+function ChangePill({ pct, onBrand }) {
   const theme = useTheme();
+  if (pct === null || pct === undefined) {
+    return <Typography variant="caption" sx={{ opacity: 0.85, fontWeight: 600 }}>Nothing to compare yet</Typography>;
+  }
+  const color = pct === 0 ? theme.palette.text.secondary : pct > 0 ? theme.palette.success.main : theme.palette.error.main;
+  const Icon = pct >= 0 ? ArrowUpward : ArrowDownward;
+  return (
+    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, px: 0.75, py: 0.15, borderRadius: 999,
+      bgcolor: onBrand ? "rgba(255,255,255,0.22)" : alpha(color, 0.12), color: onBrand ? "#fff" : color }}>
+      <Icon sx={{ fontSize: 13 }} />
+      <Typography variant="caption" fontWeight={700}>{Math.abs(pct).toFixed(1)}%</Typography>
+    </Box>
+  );
+}
 
-  const isManagerOrAdmin = user?.role === 'manager' || user?.role === 'admin';
+function Hero({ label, value, pct, compareText, subtitle, spark, loading, onClick }) {
+  return (
+    <Card onClick={onClick} sx={{ height: "100%", background: BRAND_GRADIENT, color: "#fff", position: "relative", overflow: "hidden", cursor: onClick ? "pointer" : "default" }}>
+      <Box sx={{ position: "absolute", width: 170, height: 170, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.08)", top: -60, right: -40 }} />
+      <CardContent sx={{ p: { xs: 2, sm: 2.5 }, "&:last-child": { pb: { xs: 2, sm: 2.5 } }, position: "relative" }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" sx={{ textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, opacity: 0.9 }}>{label}</Typography>
+            {loading ? <Skeleton width={160} height={50} sx={{ bgcolor: "rgba(255,255,255,0.2)" }} /> : (
+              <Typography sx={{ fontWeight: 800, fontSize: { xs: "1.9rem", sm: "2.2rem" }, lineHeight: 1.15, letterSpacing: "-0.5px" }}>{value}</Typography>
+            )}
+          </Box>
+          <Box sx={{ width: 42, height: 42, borderRadius: 3, display: "grid", placeItems: "center", bgcolor: "rgba(255,255,255,0.2)", flexShrink: 0 }}><SellIcon /></Box>
+        </Box>
+        {!loading && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", mt: 0.75 }}>
+            {compareText !== undefined && <ChangePill pct={pct} onBrand />}
+            {compareText && pct != null && <Typography variant="caption" sx={{ opacity: 0.9 }}>{compareText}</Typography>}
+          </Box>
+        )}
+        {subtitle && <Typography variant="caption" display="block" sx={{ opacity: 0.85, mt: 0.25 }}>{subtitle}</Typography>}
+        {spark?.some((v) => v > 0) && (
+          <Box sx={{ height: 46, mt: 1, mx: -0.5 }}>
+            <Line data={{ labels: spark.map((_, i) => i), datasets: [{ data: spark, borderColor: "rgba(255,255,255,0.95)", backgroundColor: "rgba(255,255,255,0.18)", fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2 }] }}
+              options={{ responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false, beginAtZero: true } } }} />
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
-  useEffect(() => { fetchDashboardData(); }, []);
+function Kpi({ label, value, icon, color, pct, note, locked, loading }) {
+  return (
+    <Card sx={{ height: "100%", backgroundImage: `linear-gradient(135deg, ${alpha(color, 0.1)} 0%, transparent 60%)` }}>
+      <CardContent sx={{ p: { xs: 1.5, sm: 2 }, "&:last-child": { pb: { xs: 1.5, sm: 2 } } }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 700, pt: 0.5 }}>{label}</Typography>
+          <IconBadge icon={icon} color={color} size={32} />
+        </Box>
+        {loading ? <Skeleton width="70%" height={36} /> : locked ? (
+          <Box sx={{ mt: 0.5 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <LockIcon sx={{ fontSize: 18 }} color="disabled" />
+              <Typography variant="body2" fontWeight={700} color="text.secondary">Business plan</Typography>
+            </Box>
+          </Box>
+        ) : (
+          <>
+            <Typography sx={{ fontWeight: 800, fontSize: { xs: "1.2rem", sm: "1.45rem" }, lineHeight: 1.25, mt: 0.5, overflowWrap: "anywhere" }}>{value}</Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
+              {pct !== undefined && <ChangePill pct={pct} />}
+              {note && <Typography variant="caption" color="text.secondary">{note}</Typography>}
+            </Box>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
-  const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+function Section({ title, icon, color, action, children }) {
+  const theme = useTheme();
+  return (
+    <Card sx={{ height: "100%" }}>
+      <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.25, gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+            <IconBadge icon={icon} color={color || theme.palette.primary.main} size={30} />
+            <Typography variant="subtitle1" fontWeight={700} noWrap>{title}</Typography>
+          </Box>
+          {action}
+        </Box>
+        {children}
+      </CardContent>
+    </Card>
+  );
+}
 
-      const storeSalesResponse = await axiosInstance.get('/store-today-sales/');
-      const storeData = storeSalesResponse.data;
+function Row({ icon, color, title, sub, right, onClick, lead }) {
+  return (
+    <Box onClick={onClick} sx={{ display: "flex", alignItems: "center", gap: 1.25, py: 1, px: 0.5, borderRadius: 2, cursor: onClick ? "pointer" : "default",
+      "&:hover": onClick ? { bgcolor: "action.hover" } : {} }}>
+      {lead}
+      {icon && <IconBadge icon={icon} color={color} size={32} />}
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography variant="body2" fontWeight={700} noWrap>{title}</Typography>
+        {sub && <Typography variant="caption" color="text.secondary" component="div" noWrap>{sub}</Typography>}
+      </Box>
+      {right}
+      {onClick && <ChevronIcon sx={{ color: "text.disabled" }} />}
+    </Box>
+  );
+}
 
-      const [productsResponse, customersResponse, salesResponse] = await Promise.all([
-        axiosInstance.get('/products/'),
-        axiosInstance.get('/customers/').catch(() => ({ data: [] })),
-        axiosInstance.get('/sales/'),
-      ]);
+const SectionError = ({ children = "Couldn't load this part. Pull to refresh or tap the refresh button." }) => (
+  <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: "center" }}>{children}</Typography>
+);
 
-      const products = productsResponse.data;
-      const customers = customersResponse.data;
-      const sales = salesResponse.data;
+// ── Page ─────────────────────────────────────────────────────────────────────
+export default function Dashboard() {
+  const theme = useTheme();
+  const navigate = useNavigate();
+  const { user } = useContext(AuthContext);
+  const { store } = useStore();
+  const { pendingSales, isOnline } = useOffline();
+  const isManager = user?.role === "manager" || user?.role === "admin";
+  const [data, setData] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState({});
 
-      const lowStockItems    = products.filter(p => parseInt(p.stock || 0) <= 10).length;
-      const criticalStockItems = products.filter(p => parseInt(p.stock || 0) <= 5).length;
-      const inventoryValue   = products.reduce((s, p) => s + parseFloat(p.cost_price || 0) * parseInt(p.stock || 0), 0);
-      // Cashiers aren't sent cost prices, so they see how many products are in stock instead
-      const canSeeCost = products.some(p => 'cost_price' in p);
-      const inStockCount = products.filter(p => parseInt(p.stock || 0) > 0).length;
+  const load = useCallback(async () => {
+    setLoading(true);
+    const today = ymd(new Date());
+    const jobs = isManager ? {
+      today: axiosInstance.get("analytics/", { params: { start_date: today, end_date: today } }),
+      stock: axiosInstance.get("analytics/stock/"),
+      recent: axiosInstance.get("sales/", { params: { today: 1, limit: 5 } }),
+      reviews: axiosInstance.get("refused-sales/"),
+    } : {
+      mine: axiosInstance.get("user-today-performance/"),
+      recent: axiosInstance.get("sales/", { params: { today: 1, limit: 5 } }),
+      // Stock warnings come from the products saved for the till; fetch them if this device has none yet
+      products: readCachedProducts() ? Promise.resolve({ data: readCachedProducts() }) : fetchProducts().then((list) => ({ data: list })),
+    };
+    const keys = Object.keys(jobs);
+    const results = await Promise.allSettled(Object.values(jobs));
+    const next = {};
+    const errs = {};
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") next[keys[i]] = r.value.data;
+      else errs[keys[i]] = true;
+    });
+    setData(next);
+    setFailed(errs);
+    setLoading(false);
+  }, [isManager]);
 
-      const recentSales = sales.slice(0, 5).map(sale => ({
-        id: sale.id,
-        amount: parseFloat(sale.total_amount || 0),
-        items: sale.items?.length || 0,
-        time: formatTimeAgo(sale.created_at),
-        customer: sale.customer_name,
-        cashier: sale.cashier,
-      }));
+  useEffect(() => { load(); }, [load]);
 
-      const productSales = {};
-      sales.forEach(sale => {
-        sale.items?.forEach(item => {
-          const id   = item.product?.id || item.product_id;
-          const name = item.product?.name || 'Unknown';
-          if (!productSales[id]) {
-            const prod = products.find(p => p.id === id);
-            productSales[id] = { name, sales: 0, stock: prod?.stock || 0, isLowStock: parseInt(prod?.stock || 0) <= 10 };
-          }
-          productSales[id].sales += parseInt(item.quantity || 0);
-        });
-      });
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const name = user?.first_name || user?.username;
+  const allOffline = !isOnline && Object.keys(failed).length > 0;
 
-      const topProducts = Object.values(productSales).sort((a, b) => b.sales - a.sales).slice(0, 5);
-      const pendingSales = JSON.parse(localStorage.getItem(storeKey('holo_pending_sales')) || '[]');
+  const header = (
+    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1, mb: 2 }}>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="h5" fontWeight={800} sx={{ fontSize: { xs: "1.25rem", md: "1.6rem" }, lineHeight: 1.2 }}>{greeting}, {name} 👋</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {new Date().toLocaleDateString("en-NG", { weekday: "long", day: "numeric", month: "long" })}{store?.name ? ` · ${store.name}` : ""}
+        </Typography>
+      </Box>
+      <Tooltip title="Refresh"><span><IconButton onClick={load} disabled={loading} color="primary"><RefreshIcon /></IconButton></span></Tooltip>
+    </Box>
+  );
 
-      setStats({
-        todaySales: storeData.total_sales || 0,
-        totalProducts: products.length,
-        lowStockItems,
-        criticalStockItems,
-        totalCustomers: customers.length,
-        recentSales,
-        topProducts,
-        inventoryValue,
-        canSeeCost,
-        inStockCount,
-        pendingOfflineSales: pendingSales.length,
-      });
-    } catch (err) {
-      console.error('Dashboard fetch failed:', err);
-      setError('Failed to load dashboard data. Please check your connection.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const recentList = (rows) => (
+    !rows ? <SectionError /> : rows.length === 0 ? (
+      <SectionError>No sales yet today.</SectionError>
+    ) : rows.map((s) => (
+      <Row key={s.id} icon={ReceiptIcon} color={theme.palette.info.main}
+        title={naira(s.total_amount)}
+        sub={`${ago(s.created_at)} · ${plural(s.items?.reduce((n, i) => n + i.quantity, 0) || 0, "item")}${isManager && s.cashier ? ` · ${s.cashier}` : ""}${s.customer_name ? ` · ${s.customer_name}` : ""}`}
+        right={s.payment_method ? <Chip size="small" variant="outlined" label={PAY[s.payment_method] || s.payment_method} /> : null} />
+    ))
+  );
 
-  const formatTimeAgo = (dateString) => {
-    const diffMs   = Date.now() - new Date(dateString);
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHrs  = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1)  return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHrs  < 24) return `${diffHrs}h ago`;
-    return `${diffDays}d ago`;
-  };
+  // ── Cashier view ─────────────────────────────────────────────────────────
+  if (!isManager) {
+    const mine = data.mine;
+    const cached = data.products || readCachedProducts() || [];
+    const out = cached.filter((p) => p.stock === 0);
+    const low = cached.filter((p) => p.stock > 0 && p.stock <= 5);
+    return (
+      <Box sx={{ p: { xs: 1.5, sm: 2, md: 3 }, maxWidth: 1100, mx: "auto" }}>
+        {header}
+        {allOffline && <Alert severity="warning" sx={{ mb: 2 }}>Offline. You can keep selling; totals update when you're back online.</Alert>}
+        <Grid container spacing={1.5} sx={{ mb: 2 }}>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Hero label="My sales today" loading={loading} value={naira(mine?.total_sales)}
+              subtitle={mine ? `${plural(mine.transaction_count, "sale")} · avg ${naira(mine.average_sale)}` : failed.mine ? "Couldn't load" : ""} />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Button fullWidth variant="contained" onClick={() => navigate("/salespage")} startIcon={<SellIcon sx={{ fontSize: "32px !important" }} />}
+              sx={{ height: "100%", minHeight: 110, fontSize: 22, fontWeight: 800, borderRadius: 4, background: BRAND_GRADIENT }}>
+              Start selling
+            </Button>
+          </Grid>
+        </Grid>
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Section title="Needs attention" icon={WarningIcon} color={theme.palette.warning.main}>
+              {pendingSales.length > 0 && <Row icon={SyncIcon} color={theme.palette.info.main} title={`${plural(pendingSales.length, "sale")} waiting to sync`}
+                sub={isOnline ? "Open Sell and tap Sync" : "They'll sync when you're back online"} onClick={() => navigate("/salespage")} />}
+              {out.length > 0 && <Row icon={OutIcon} color={theme.palette.error.main} title={`${plural(out.length, "product")} out of stock`}
+                sub={out.slice(0, 3).map((p) => p.name).join(", ") + (out.length > 3 ? "…" : "") + " · tell your manager"} />}
+              {low.length > 0 && <Row icon={WarningIcon} color={theme.palette.warning.main} title={`${plural(low.length, "product")} almost finished`}
+                sub={low.slice(0, 3).map((p) => `${p.name} (${p.stock})`).join(", ")} />}
+              {!pendingSales.length && !out.length && !low.length && <Row icon={OkIcon} color={theme.palette.success.main} title="All good" sub="Nothing needs your attention" />}
+            </Section>
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Section title="My recent sales" icon={ReceiptIcon} color={theme.palette.info.main}>
+              {loading ? <Skeleton height={120} /> : recentList(data.recent)}
+            </Section>
+          </Grid>
+        </Grid>
+      </Box>
+    );
+  }
 
-  const formatCurrency = (amount) =>
-    `₦${parseFloat(amount || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // ── Owner / manager view ────────────────────────────────────────────────
+  const t = data.today;
+  const s = t?.summary;
+  const c = t?.change_pct || {};
+  const canProfit = !!t?.can_view_profit;
+  const stock = data.stock;
+  const reviews = Array.isArray(data.reviews) ? data.reviews.length : 0;
+  const lost = t?.stock_loss?.total || 0;
+  const pay = t?.payments;
+  const share = (v) => (s?.revenue ? (v / s.revenue) * 100 : 0);
+  const restock = stock ? [...stock.out_of_stock_selling.map((x) => ({ ...x, urgent: true, note: "Out of stock" })),
+    ...stock.running_out.map((x) => ({ ...x, urgent: x.days_left <= 3, note: `${count(x.stock)} left · ~${Math.max(Math.round(x.days_left), 1)}d` }))].slice(0, 5) : [];
 
-  const getGreeting = () => {
-    const h = new Date().getHours();
-    if (h < 12) return 'Good morning';
-    if (h < 17) return 'Good afternoon';
-    return 'Good evening';
-  };
-
-  const formattedDate = new Date().toLocaleDateString('en-NG', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-  });
+  const attention = [
+    reviews > 0 && { icon: ReviewIcon, color: theme.palette.secondary.main, title: `${plural(reviews, "sale")} waiting for review`, sub: "Offline sales the server held back", go: "/sale-reviews" },
+    pendingSales.length > 0 && { icon: SyncIcon, color: theme.palette.info.main, title: `${plural(pendingSales.length, "sale")} on this device not synced`, sub: isOnline ? "Open Sell to sync" : "Will sync when online", go: "/salespage" },
+    stock?.totals.out_of_stock > 0 && { icon: OutIcon, color: theme.palette.error.main, title: `${plural(stock.totals.out_of_stock, "product")} out of stock`,
+      sub: stock.missed_per_day_total > 0 ? `About ${naira(stock.missed_per_day_total)} in sales missed a day` : "Restock or archive them", go: "/restock" },
+    stock?.running_out_count > 0 && { icon: WarningIcon, color: theme.palette.warning.main, title: `${plural(stock.running_out_count, "product")} running out soon`, sub: "Within 14 days at today's pace", go: "/restock" },
+    lost > 0 && { icon: LossIcon, color: theme.palette.error.main, title: `${naira(lost)} of stock lost today`, sub: t.stock_loss.by_reason.map((r) => r.label).join(", "), go: "/reports/sales" },
+  ].filter(Boolean);
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
+    <Box sx={{ p: { xs: 1.5, sm: 2, md: 3 }, maxWidth: 1400, mx: "auto" }}>
+      {header}
+      {allOffline && <Alert severity="warning" sx={{ mb: 2 }}>Offline. These figures update when you're back online.</Alert>}
 
-      {/* ── Page header ───────────────────────────────────── */}
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 1 }}>
-        <Box>
-          <Typography
-            variant="h5"
-            fontWeight="bold"
-            sx={{ fontSize: { xs: '1.2rem', md: '1.5rem' }, letterSpacing: '-0.4px', lineHeight: 1.2 }}
-          >
-            {getGreeting()}, {user?.username} 👋
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.3 }}>
-            {formattedDate}
-          </Typography>
-        </Box>
-        <Tooltip title="Refresh dashboard">
-          <IconButton onClick={fetchDashboardData} size="small" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-            <RefreshIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Box>
-
-      {error && <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>{error}</Alert>}
-
-      {/* ── Stat Cards ────────────────────────────────────── */}
-      <Grid container spacing={2.5} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
-          <StatCard
-            title="Store Sales Today"
-            value={loading ? '—' : formatCurrency(stats.todaySales)}
-            subtitle={`${stats.recentSales.length} transactions`}
-            icon={<AttachMoneyIcon />}
-            gradient={G.brand}
-            trend={12.5}
-            loading={loading}
-            onClick={() => navigate('/reports/sales')}
-          />
+      {/* Today */}
+      <Grid container spacing={1.5} sx={{ mb: 2 }}>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Hero label="Sales today" loading={loading} value={failed.today ? "—" : naira(s?.revenue)} pct={c.revenue}
+            compareText="vs this time yesterday" onClick={() => navigate("/reports/sales")}
+            subtitle={s ? `${plural(s.transactions, "transaction")} · ${plural(s.items, "item")}` : failed.today ? "Couldn't load" : ""}
+            spark={t?.hourly?.filter((h) => h.hour >= 7 && h.hour <= 22).map((h) => h.revenue)} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
-          <StatCard
-            title="Total Products"
-            value={loading ? '—' : stats.totalProducts.toLocaleString()}
-            subtitle={stats.lowStockItems > 0 ? `${stats.lowStockItems} need restocking` : 'All well-stocked'}
-            icon={<InventoryIcon />}
-            gradient={G.sky}
-            trend={2.1}
-            loading={loading}
-            onClick={() => navigate('/products')}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
-          <StatCard
-            title={stats.canSeeCost === false ? "Products In Stock" : "Inventory Value"}
-            value={loading ? '—' : stats.canSeeCost === false ? stats.inStockCount.toLocaleString() : formatCurrency(stats.inventoryValue)}
-            subtitle={stats.canSeeCost === false ? "Available to sell" : "Total cost value on hand"}
-            icon={<TrendingUpIcon />}
-            gradient={G.emerald}
-            loading={loading}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
-          <StatCard
-            title="Total Customers"
-            value={loading ? '—' : stats.totalCustomers.toLocaleString()}
-            subtitle="Registered loyalty members"
-            icon={<PeopleIcon />}
-            gradient={G.amber}
-            trend={5.2}
-            loading={loading}
-            onClick={() => navigate('/customers')}
-          />
+        <Grid size={{ xs: 12, md: 8 }}>
+          <Grid container spacing={1.5} sx={{ height: "100%" }}>
+            <Grid size={{ xs: 6, md: 4 }}>
+              <Kpi label="Profit" icon={ProfitIcon} color={theme.palette.success.main} loading={loading} locked={!canProfit && !!t}
+                value={naira(s?.profit)} pct={c.profit} note={s?.margin_pct != null ? `${s.margin_pct}% margin` : ""} />
+            </Grid>
+            <Grid size={{ xs: 6, md: 4 }}>
+              <Kpi label="Transactions" icon={ReceiptIcon} color={theme.palette.info.main} loading={loading} value={count(s?.transactions)} pct={c.transactions} />
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Kpi label="Avg. sale" icon={CartIcon} color={theme.palette.secondary.main} loading={loading} value={naira(s?.average_sale)} pct={c.average_sale} />
+            </Grid>
+          </Grid>
         </Grid>
       </Grid>
 
-      {/* ── Alerts ────────────────────────────────────────── */}
-      {(stats.lowStockItems > 0 || stats.pendingOfflineSales > 0) && (
-        <Box sx={{ mb: 3 }}>
-          <Grid container spacing={1.5}>
-            {stats.lowStockItems > 0 && (
-              <Grid size={{ xs: 12, md: stats.criticalStockItems > 0 ? 6 : 12 }}>
-                <Alert
-                  severity={stats.criticalStockItems > 0 ? 'warning' : 'info'}
-                  sx={{ borderRadius: 2 }}
-                  action={<Button color="inherit" size="small" onClick={() => navigate('/products')}>View</Button>}
-                >
-                  {stats.lowStockItems} product{stats.lowStockItems > 1 ? 's' : ''} running low
-                  {stats.criticalStockItems > 0 && ` · ${stats.criticalStockItems} critical`}
-                </Alert>
-              </Grid>
-            )}
-            {stats.criticalStockItems > 0 && (
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Alert
-                  severity="error"
-                  sx={{ borderRadius: 2 }}
-                  action={<Button color="inherit" size="small" onClick={() => navigate('/restock')}>Restock</Button>}
-                >
-                  {stats.criticalStockItems} product{stats.criticalStockItems > 1 ? 's' : ''} critically out of stock
-                </Alert>
-              </Grid>
-            )}
-            {stats.pendingOfflineSales > 0 && (
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Alert
-                  severity="info"
-                  sx={{ borderRadius: 2 }}
-                  action={<Button color="inherit" size="small" onClick={() => navigate('/salespage')}>Sync</Button>}
-                >
-                  {stats.pendingOfflineSales} offline sale{stats.pendingOfflineSales > 1 ? 's' : ''} pending sync
-                </Alert>
-              </Grid>
-            )}
-          </Grid>
-        </Box>
-      )}
-
-      {/* ── Quick Actions + Activity ───────────────────────── */}
-      <Grid container spacing={2.5}>
-
-        {/* Quick Actions */}
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1.5, color: 'text.secondary', fontSize: '0.78rem', letterSpacing: 0.8, textTransform: 'uppercase' }}>
-            Quick Actions
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-            <ActionCard
-              title="New Sale"
-              description="Start a POS transaction"
-              icon={<ShoppingCartIcon />}
-              gradient={G.brand}
-              onClick={() => navigate('/salespage')}
-            />
-            <ActionCard
-              title="Manage Products"
-              description="Add, edit, or adjust inventory"
-              icon={<InventoryIcon />}
-              gradient={G.sky}
-              onClick={() => navigate('/products')}
-            />
-            {isManagerOrAdmin && (
-              <ActionCard
-                title="Restock Items"
-                description="Top up low-stock products"
-                icon={<RestockIcon />}
-                gradient={G.amber}
-                onClick={() => navigate('/restock')}
-              />
-            )}
-            {isManagerOrAdmin && (
-              <ActionCard
-                title="Sales Reports"
-                description="Analyse store performance"
-                icon={<ReportsIcon />}
-                gradient={G.emerald}
-                onClick={() => navigate('/reports/sales')}
-              />
-            )}
-          </Box>
+      <Grid container spacing={2}>
+        {/* Needs attention */}
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Section title="Needs attention" icon={WarningIcon} color={theme.palette.warning.main}>
+            {loading ? <Skeleton height={120} /> : attention.length === 0 ? (
+              <Row icon={OkIcon} color={theme.palette.success.main} title="All good" sub="No reviews, stock problems or losses right now" />
+            ) : attention.map((a) => <Row key={a.title} icon={a.icon} color={a.color} title={a.title} sub={a.sub} onClick={() => navigate(a.go)} />)}
+          </Section>
         </Grid>
 
-        {/* Recent Sales */}
-        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent sx={{ p: '20px !important' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="subtitle1" fontWeight="bold">Recent Sales</Typography>
-                <Button size="small" onClick={() => navigate('/reports/sales')} sx={{ fontSize: '0.75rem' }}>
-                  View all
-                </Button>
-              </Box>
-
-              {loading ? (
-                [1,2,3].map(i => (
-                  <Box key={i} sx={{ display:'flex', gap:1.5, mb:2, alignItems:'center' }}>
-                    <Skeleton variant="circular" width={36} height={36} />
-                    <Box sx={{ flex:1 }}>
-                      <Skeleton variant="text" width="60%" />
-                      <Skeleton variant="text" width="40%" />
-                    </Box>
-                  </Box>
-                ))
-              ) : stats.recentSales.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 5 }}>
-                  <ReceiptIcon sx={{ fontSize: 44, color: 'text.disabled', mb: 1 }} />
-                  <Typography variant="body2" color="text.secondary">No sales yet today</Typography>
-                </Box>
-              ) : (
-                <List disablePadding>
-                  {stats.recentSales.map((sale, i) => (
-                    <React.Fragment key={sale.id}>
-                      <ListItem disableGutters sx={{ py: 1 }}>
-                        <ListItemIcon sx={{ minWidth: 44 }}>
-                          <Avatar sx={{ width: 36, height: 36, background: G.brand }}>
-                            <ShoppingCartIcon sx={{ fontSize: 16 }} />
-                          </Avatar>
-                        </ListItemIcon>
-                        <ListItemText
-                          primary={
-                            <Typography variant="body2" fontWeight="bold">
-                              {formatCurrency(sale.amount)}
-                            </Typography>
-                          }
-                          secondary={
-                            <Typography variant="caption" color="text.secondary">
-                              {sale.items} item{sale.items !== 1 ? 's' : ''} · {sale.time}
-                              {sale.customer ? ` · ${sale.customer}` : ''}
-                            </Typography>
-                          }
-                        />
-                        <Chip
-                          icon={<CheckCircleIcon sx={{ fontSize: '14px !important' }} />}
-                          label="Done"
-                          size="small"
-                          color="success"
-                          variant="outlined"
-                          sx={{ height: 22, fontSize: '0.68rem' }}
-                        />
-                      </ListItem>
-                      {i < stats.recentSales.length - 1 && <Divider />}
-                    </React.Fragment>
-                  ))}
-                </List>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Top Products */}
-        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent sx={{ p: '20px !important' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="subtitle1" fontWeight="bold">Top Products</Typography>
-                <Button size="small" onClick={() => navigate('/products')} sx={{ fontSize: '0.75rem' }}>
-                  View all
-                </Button>
-              </Box>
-
-              {loading ? (
-                [1,2,3,4].map(i => (
-                  <Box key={i} sx={{ mb: 2 }}>
-                    <Skeleton variant="text" width="70%" />
-                    <Skeleton variant="rectangular" height={6} sx={{ borderRadius: 3, mt: 0.5 }} />
-                  </Box>
-                ))
-              ) : stats.topProducts.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 5 }}>
-                  <TrendingUpIcon sx={{ fontSize: 44, color: 'text.disabled', mb: 1 }} />
-                  <Typography variant="body2" color="text.secondary">No sales data available</Typography>
-                </Box>
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {stats.topProducts.map((product, i) => {
-                    const pct = Math.min((product.sales / (stats.topProducts[0]?.sales || 1)) * 100, 100);
-                    const stockColor = product.stock < 5 ? 'error' : product.stock < 10 ? 'warning' : 'success';
-                    return (
-                      <Box key={product.name}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
-                            <Typography
-                              variant="body2"
-                              fontWeight="medium"
-                              noWrap
-                              sx={{ color: product.isLowStock ? 'warning.main' : 'text.primary' }}
-                            >
-                              {i + 1}. {product.name}
-                            </Typography>
-                            {product.isLowStock && <WarningIcon color="warning" sx={{ fontSize: 13, flexShrink: 0 }} />}
-                          </Box>
-                          <Chip
-                            label={`${product.sales} sold`}
-                            size="small"
-                            variant="outlined"
-                            sx={{ height: 20, fontSize: '0.65rem', ml: 1, flexShrink: 0 }}
-                          />
-                        </Box>
-                        <LinearProgress
-                          variant="determinate"
-                          value={pct}
-                          color={stockColor}
-                          sx={{ height: 5, borderRadius: 3 }}
-                        />
+        {/* Money in */}
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Section title="Money in today" icon={WalletIcon} color={theme.palette.success.main}>
+            {loading ? <Skeleton height={120} /> : !pay ? <SectionError /> : (
+              <Grid container spacing={1}>
+                {[["Cash", pay.cash, CashIcon, theme.palette.success.main, "In the drawer"], ["Transfer", pay.transfer, BankIcon, theme.palette.primary.main, "Check bank alerts"],
+                  ["POS", pay.card, CardIcon, theme.palette.secondary.main, "Check settlement"],
+                  ...(pay.unrecorded > 0 ? [["Not recorded", pay.unrecorded, UnknownIcon, theme.palette.grey[500], "Older app version"]] : [])].map(([label, v, Icon, color, hint]) => (
+                  <Grid key={label} size={{ xs: 6, sm: pay.unrecorded > 0 ? 3 : 4, md: 6, lg: pay.unrecorded > 0 ? 3 : 4 }}>
+                    <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2.5, height: "100%", borderColor: alpha(color, 0.3), backgroundImage: `linear-gradient(135deg, ${alpha(color, 0.08)} 0%, transparent 70%)` }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5 }}>
+                        <IconBadge icon={Icon} color={color} size={26} />
+                        <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: "uppercase" }}>{label}</Typography>
                       </Box>
-                    );
-                  })}
-                </Box>
-              )}
-            </CardContent>
-          </Card>
+                      <Typography fontWeight={800}>{naira(v)}</Typography>
+                      <Typography variant="caption" color="text.secondary">{share(v).toFixed(0)}% · {hint}</Typography>
+                    </Paper>
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </Section>
+        </Grid>
+
+        {/* Restock soon */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Section title="Restock soon" icon={RestockIcon} color={theme.palette.warning.main}
+            action={<Button size="small" onClick={() => navigate("/restock")}>Restock</Button>}>
+            {loading ? <Skeleton height={140} /> : !stock ? <SectionError /> : restock.length === 0 ? (
+              <SectionError>Nothing is about to run out.</SectionError>
+            ) : restock.map((x) => (
+              <Row key={x.id} title={x.name} sub={x.note} onClick={() => navigate("/restock")}
+                right={<Typography variant="body2" fontWeight={800} color={x.urgent ? "error.main" : "warning.main"}>+{count(x.reorder_qty)}</Typography>} />
+            ))}
+          </Section>
+        </Grid>
+
+        {/* Top sellers today */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Section title="Top sellers today" icon={TrophyIcon} color={MEDALS[0]}
+            action={<Button size="small" onClick={() => navigate("/reports/sales")}>Reports</Button>}>
+            {loading ? <Skeleton height={140} /> : !t ? <SectionError /> : t.products.length === 0 ? (
+              <SectionError>No sales yet today.</SectionError>
+            ) : t.products.slice(0, 5).map((p, i) => (
+              <Row key={p.id} title={p.name} sub={`${count(p.quantity)} sold`}
+                lead={<Avatar sx={{ width: 28, height: 28, fontSize: 12, fontWeight: 800, border: i < 3 ? `1.5px solid ${MEDALS[i]}` : "none",
+                  bgcolor: i < 3 ? alpha(MEDALS[i], 0.2) : "action.hover", color: i < 3 ? MEDALS[i] : "text.secondary" }}>{i + 1}</Avatar>}
+                right={<Typography variant="body2" fontWeight={800}>{naira(p.revenue)}</Typography>} />
+            ))}
+          </Section>
+        </Grid>
+
+        {/* Recent sales */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Section title="Recent sales" icon={ReceiptIcon} color={theme.palette.info.main}
+            action={<Button size="small" onClick={() => navigate("/reports/sales")}>All</Button>}>
+            {loading ? <Skeleton height={140} /> : recentList(data.recent)}
+          </Section>
+        </Grid>
+
+        {/* Quick actions */}
+        <Grid size={{ xs: 12 }}>
+          <Grid container spacing={1.5}>
+            {[["Sell", "Open the till", SellIcon, theme.palette.primary.main, "/salespage"],
+              ["Restock", "Add a delivery", RestockIcon, theme.palette.warning.main, "/restock"],
+              ["Products", "Prices, stock & counts", CountIcon, theme.palette.info.main, "/products"],
+              ["Reports", "Sales, profit & stock", ReportsIcon, theme.palette.success.main, "/reports/sales"]].map(([label, sub, Icon, color, go]) => (
+              <Grid key={label} size={{ xs: 6, md: 3 }}>
+                <Paper variant="outlined" onClick={() => navigate(go)} sx={{ p: 1.5, borderRadius: 3, cursor: "pointer", display: "flex", alignItems: "center", gap: 1.25,
+                  "&:hover": { bgcolor: alpha(color, 0.06), borderColor: color } }}>
+                  <IconBadge icon={Icon} color={color} size={38} />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="body2" fontWeight={800}>{label}</Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap component="div">{sub}</Typography>
+                  </Box>
+                </Paper>
+              </Grid>
+            ))}
+          </Grid>
         </Grid>
       </Grid>
     </Box>
   );
-};
-
-export default Dashboard;
+}

@@ -1106,3 +1106,23 @@ class PriceCheckTests(TenantTestCase):
         self.assertEqual(ids[0], self.a['product'].pk)
         self.client.force_authenticate(self.b['cashier'])
         self.assertNotIn(self.a['product'].pk, self.client.get('/api/products/top-sellers/').data)
+
+
+class DashboardDataTests(TenantTestCase):
+
+    def test_cashiers_see_only_their_own_sales(self):
+        other = Staff.objects.create_user('alpha_cashier2', password='pw12345', store=self.a['store'], is_cashier=True)
+        SaleTransaction.objects.create(store=self.a['store'], cashier=other, total_amount=900, paid_amount=900, change_given=0)
+        self.assertEqual(len(self.client.get('/api/sales/').data), 2)  # admin: whole store
+        self.client.force_authenticate(self.a['cashier'])
+        rows = self.client.get('/api/sales/').data
+        self.assertEqual([r['cashier'] for r in rows], ['alpha_cashier'])
+        self.assertEqual(self.client.get('/api/store-today-sales/').status_code, 403)
+        self.assertEqual(self.client.get('/api/user-today-performance/').status_code, 200)
+
+    def test_today_and_limit_filters(self):
+        old = SaleTransaction.objects.create(store=self.a['store'], cashier=self.a['cashier'], total_amount=1, paid_amount=1, change_given=0)
+        SaleTransaction.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=3))
+        today = self.client.get('/api/sales/', {'today': 1}).data
+        self.assertNotIn(old.pk, [r['id'] for r in today])
+        self.assertEqual(len(self.client.get('/api/sales/', {'limit': 1}).data), 1)

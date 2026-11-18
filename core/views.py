@@ -82,6 +82,21 @@ class SaleTransactionViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     permission_classes = [IsCashierOrManager]
     pagination_class = None
 
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related('cashier', 'customer').prefetch_related(
+            'items__product__category', 'items__product__bulk_discounts')
+        user = self.request.user
+        if self.action == 'list':
+            # Till staff see their own sales; the store's takings are for managers and owners
+            if not (user.is_manager or user.is_admin or user.is_superuser):
+                queryset = queryset.filter(cashier=user)
+            if self.request.query_params.get('today') in ('1', 'true'):
+                queryset = queryset.filter(created_at__date=timezone.localdate())
+            limit = self.request.query_params.get('limit')
+            if limit and limit.isdigit():
+                queryset = queryset[:min(int(limit), 200)]
+        return queryset
+
     def _already_recorded(self, client_ref):
         sale = SaleTransaction.objects.filter(store=current_store(self.request), client_ref=client_ref).first()
         return sale and Response(self.get_serializer(sale).data, status=status.HTTP_200_OK)
@@ -247,7 +262,7 @@ def calculate_sales_stats(sales_queryset):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsManagerOrAdmin])
 @throttle_classes([SustainedRateThrottle])
 def store_today_sales(request):
     """Get TOTAL store sales for today - for dashboard card"""
