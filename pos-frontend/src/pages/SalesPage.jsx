@@ -1,758 +1,266 @@
 import {
-  Grid, TextField, MenuItem, Typography, Button, Paper, Table,
-  TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar,
-  Card, CardContent, Box, Chip, IconButton, Divider, Alert, Tooltip,
-  Dialog, DialogTitle, DialogContent, DialogActions, Badge, Autocomplete
+  Alert, Autocomplete, Badge, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions,
+  DialogContent, DialogTitle, Divider, Grid, IconButton, InputAdornment, ListItemIcon, Menu, MenuItem, Paper,
+  Snackbar, TextField, Tooltip, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
-import MuiAlert from "@mui/material/Alert";
-import { useEffect, useState, useRef } from "react";
+import { alpha } from "@mui/material/styles";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axiosInstance from "../utils/axiosInstance";
 import {
-  Delete as DeleteIcon,
-  Add as AddIcon,
-  Remove as RemoveIcon,
-  Receipt as ReceiptIcon,
-  QrCodeScanner as QrCodeScannerIcon,
-  Search as SearchIcon,
-  Print as PrintIcon,
-  Keyboard as KeyboardIcon,
-  Save as SaveIcon,
-  Refresh as RefreshIcon,
-  Person as PersonIcon,
-  Loyalty as LoyaltyIcon,
-  PersonAdd as PersonAddIcon,
-  CloudOff as OfflineIcon,
-  CloudQueue as SyncingIcon,
-  CloudDone as OnlineIcon,
-  CloudUpload as CloudUploadIcon,
-  LocalOffer as DiscountIcon,
-  CameraAlt as CameraIcon
+  Add as AddIcon, Remove as RemoveIcon, Delete as DeleteIcon, Search as SearchIcon, CameraAlt as CameraIcon,
+  Keyboard as KeyboardIcon, Refresh as RefreshIcon, PersonAdd as PersonAddIcon, Person as PersonIcon,
+  CloudOff as OfflineIcon, CloudDone as OnlineIcon, CloudUpload as SyncIcon, LocalOffer as DiscountIcon,
+  MoreVert as MoreIcon, ShoppingCart as CartIcon, PointOfSale as PosIcon, Star as StarIcon, Close as CloseIcon,
+  DeleteSweep as ClearCacheIcon, RemoveShoppingCart as ClearCartIcon, Receipt as ReceiptIcon, Save as SaveIcon,
+  Loyalty as LoyaltyIcon, Payments as CashIcon, AccountBalance as BankIcon, CreditCard as CardIcon, CallSplit as SplitIcon,
 } from "@mui/icons-material";
 import { useReactToPrint } from "react-to-print";
 import Receipt from "../components/Receipt";
-import CustomerLookupModal from '../components/CustomerLookupModal';
-import CustomerQuickAddModal from '../components/CustomerQuickAddModal';
-import BarcodeScannerDialog from '../components/BarcodeScannerDialog';
-import ReceiptDialog from '../components/ReceiptDialog';
-import { useOffline } from '../context/OfflineManager';
-import { useStore } from '../context/StoreContext';
-import { storeKey } from '../utils/storeKey';
+import CustomerLookupModal from "../components/CustomerLookupModal";
+import CustomerQuickAddModal from "../components/CustomerQuickAddModal";
+import BarcodeScannerDialog from "../components/BarcodeScannerDialog";
+import ReceiptDialog from "../components/ReceiptDialog";
+import { useOffline } from "../context/OfflineManager";
+import { useStore } from "../context/StoreContext";
+import { storeKey } from "../utils/storeKey";
 import {
   clearCachedProducts, deductCachedStock, deductStock, fetchProducts, readCachedProducts,
-} from '../utils/productCache';
+} from "../utils/productCache";
 
-// Currency formatting helper function
+const BRAND_GRADIENT = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+const TOP_SELLERS_KEY = "pos-top-sellers";
+
 const formatCurrency = (amount) => {
-  if (amount === null || amount === undefined || isNaN(amount)) {
-    return '₦0.00';
+  const n = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (n === null || n === undefined || isNaN(n)) return "₦0.00";
+  return `₦${n.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+const naira = (n) => `₦${Number(n || 0).toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
+const r2 = (v) => Math.round(v * 100) / 100;
+const packSize = (product) => (product?.is_bulk_product && Number(product.bulk_quantity) > 1 ? Number(product.bulk_quantity) : null);
+const unitWord = (p) => (p?.unit_of_measure && p.unit_of_measure !== "units" ? p.unit_of_measure : "items");
+const asNumbers = (product) => ({
+  ...product,
+  price: typeof product.price === "string" ? parseFloat(product.price) : product.price,
+  bulk_price: product.bulk_price ? parseFloat(product.bulk_price) : null,
+});
+// Anything that changes what an item costs
+const priceSignature = (p) => [p.price, p.bulk_price, p.bulk_quantity, p.is_bulk_product, JSON.stringify(p.bulk_discounts || [])].join("|");
+
+const discountAmount = (discount, quantity, unitPrice) => {
+  switch (discount.discount_type) {
+    case "percentage": return unitPrice * quantity * (parseFloat(discount.discount_value) / 100);
+    case "fixed": return parseFloat(discount.discount_value);
+    case "bundle": return Math.floor(quantity / discount.minimum_quantity) * parseFloat(discount.discount_value) * unitPrice;
+    default: return 0;
   }
-
-  // Convert to number if it's a string
-  const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
-
-  // Format with commas for thousands and two decimal places
-  return `₦${numAmount.toLocaleString('en-NG', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  })}`;
 };
 
-const SalesPage = () => {
-  const [products, setProducts] = useState([]);
-  const [barcodeInput, setBarcodeInput] = useState("");
-  const [cameraScannerOpen, setCameraScannerOpen] = useState(false);
-  const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
-  const [cameraScanMessage, setCameraScanMessage] = useState("");
-  const [cart, setCart] = useState([]);
-  const [paidAmount, setPaidAmount] = useState("");
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: "",
-    severity: "info"
-  });
-  const [lastSale, setLastSale] = useState(null);
-  const [isPrinting, setIsPrinting] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [quickProducts, setQuickProducts] = useState([]);
-  const [scannerActive, setScannerActive] = useState(true);
-  // How the customer pays: CASH, TRANSFER, POS or SPLIT (some by transfer/POS, the rest cash)
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
-  const [transferPart, setTransferPart] = useState("");
-  const [cardPart, setCardPart] = useState("");
-  const paymentOkRef = useRef(false);
-  const [suggestedAmounts, setSuggestedAmounts] = useState([]);
-  const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
-  // Quantity typed in for one cart line: { product, packs, singles }
-  const [quantityEdit, setQuantityEdit] = useState(null);
-  const [lastRefresh, setLastRefresh] = useState(new Date());
-  const [customerLookupOpen, setCustomerLookupOpen] = useState(false);
-  const [customerQuickAddOpen, setCustomerQuickAddOpen] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
+/** What a line costs: carton pricing first, then the best active bulk discount (the server checks the same). */
+const calculateItemPrice = (product, quantity) => {
+  const unitPrice = parseFloat(product.price) || 0;
+  const size = packSize(product);
+  let total = size && product.bulk_price
+    ? Math.floor(quantity / size) * parseFloat(product.bulk_price) + (quantity % size) * unitPrice
+    : unitPrice * quantity;
+  const now = new Date();
+  const best = (product.bulk_discounts || [])
+    .filter((d) => d.is_active && now >= new Date(d.start_date) && (!d.end_date || now <= new Date(d.end_date)) && quantity >= d.minimum_quantity)
+    .reduce((max, d) => Math.max(max, discountAmount(d, quantity, unitPrice)), 0);
+  total -= best;
+  return Math.max(0, total);
+};
 
-  // Offline functionality
-  const {
-    isOnline,
-    pendingSales,
-    saveOfflineSale,
-    syncPendingSales
-  } = useOffline();
+function readJSON(key, fallback) {
+  try {
+    const v = JSON.parse(localStorage.getItem(storeKey(key)));
+    return v ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const SalesPage = () => {
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
+  const { isOnline, pendingSales, saveOfflineSale, syncPendingSales } = useOffline();
   const { store } = useStore();
 
-  const receiptRef = useRef();
-  const barcodeRef = useRef();
+  const [products, setProducts] = useState([]);
+  const [topSellerIds, setTopSellerIds] = useState(() => readJSON(TOP_SELLERS_KEY, []));
+  const [browse, setBrowse] = useState("top");
+  const [searchText, setSearchText] = useState("");
+  const [cart, setCart] = useState(() => readJSON("pos-cart", []));
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [paidAmount, setPaidAmount] = useState("");
+  const [transferPart, setTransferPart] = useState("");
+  const [cardPart, setCardPart] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saleError, setSaleError] = useState("");
+  const [lastSale, setLastSale] = useState(null);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [quantityEdit, setQuantityEdit] = useState(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraMessage, setCameraMessage] = useState("");
+  const [customerLookupOpen, setCustomerLookupOpen] = useState(false);
+  const [customerAddOpen, setCustomerAddOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "info" });
+  const [lastRefresh, setLastRefresh] = useState(null);
 
-  const showSnackbar = (message, severity = "info") => {
-    setSnackbar({ open: true, message, severity });
-  };
+  const searchRef = useRef(null);
+  const receiptRef = useRef(null);
+  const completeRef = useRef(null);
+  const restoredRef = useRef(cart.length > 0);
 
-  const handleCloseSnackbar = () => {
-    setSnackbar(prev => ({ ...prev, open: false }));
-  };
+  const notify = (message, severity = "info") => setSnackbar({ open: true, message, severity });
+  const byId = useMemo(() => Object.fromEntries(products.map((p) => [p.id, p])), [products]);
 
-  // Helper function for discount calculation - FIXED: Made standalone
-  const calculateDiscountAmount = (discount, quantity, unitPrice) => {
-    if (!discount) return 0;
+  // ── Products ─────────────────────────────────────────────────────────────
+  const showProducts = (list) => setProducts(list.map(asNumbers));
 
-    switch (discount.discount_type) {
-      case 'percentage':
-        return (unitPrice * quantity) * (parseFloat(discount.discount_value) / 100);
-      case 'fixed':
-        return parseFloat(discount.discount_value);
-      case 'bundle':
-        const bundles = Math.floor(quantity / discount.minimum_quantity);
-        return bundles * parseFloat(discount.discount_value) * unitPrice;
-      default:
-        return 0;
-    }
-  };
-
-  // Bulk Pricing Calculation - FIXED: Removed 'this.' references
-  const calculateItemPrice = (product, quantity) => {
-    const unitPrice = parseFloat(product.price) || 0;
-
-    // First apply bulk product pricing if applicable
-    let totalPrice = 0;
-
-    if (product.is_bulk_product && product.bulk_quantity > 1 && product.bulk_price) {
-      const bulkQuantity = parseInt(product.bulk_quantity) || 1;
-      const bulkPrice = parseFloat(product.bulk_price) || 0;
-
-      const bulkPacks = Math.floor(quantity / bulkQuantity);
-      const remainingUnits = quantity % bulkQuantity;
-
-      totalPrice = (bulkPacks * bulkPrice) + (remainingUnits * unitPrice);
-    } else {
-      // Regular pricing
-      totalPrice = unitPrice * quantity;
-    }
-
-    // Then apply bulk discounts if available
-    if (product.bulk_discounts && product.bulk_discounts.length > 0) {
-      const activeDiscounts = product.bulk_discounts.filter(discount => {
-        if (!discount.is_active) return false;
-
-        // Check if discount is within date range
-        const now = new Date();
-        const startDate = new Date(discount.start_date);
-        if (discount.end_date) {
-          const endDate = new Date(discount.end_date);
-          return now >= startDate && now <= endDate;
-        }
-        return now >= startDate;
-      });
-
-      // Find the best applicable discount
-      const applicableDiscounts = activeDiscounts.filter(discount =>
-        quantity >= discount.minimum_quantity
-      );
-
-      if (applicableDiscounts.length > 0) {
-        const bestDiscount = applicableDiscounts.reduce((best, current) => {
-          const currentValue = calculateDiscountAmount(current, quantity, unitPrice);
-          const bestValue = calculateDiscountAmount(best, quantity, unitPrice);
-          return currentValue > bestValue ? current : best;
-        });
-
-        const discountAmount = calculateDiscountAmount(bestDiscount, quantity, unitPrice);
-        totalPrice -= discountAmount;
-      }
-    }
-
-    return Math.max(0, totalPrice); // Ensure price doesn't go negative
-  };
-
-  const showProducts = (list) => {
-    setProducts(list.map(product => ({
-      ...product,
-      price: typeof product.price === 'string' ? parseFloat(product.price) : product.price,
-      bulk_price: product.bulk_price ? (typeof product.bulk_price === 'string' ? parseFloat(product.bulk_price) : product.bulk_price) : null
-    })));
-  };
-
-  // Show the saved list straight away, then replace it with fresh products when online
-  const loadProducts = async () => {
-    const cachedProducts = readCachedProducts();
-    if (cachedProducts) showProducts(cachedProducts);
-
-    if (!isOnline) {
-      showSnackbar(
-        cachedProducts ? "Using saved products (offline mode)" : "No saved products on this device yet",
-        cachedProducts ? "info" : "warning"
-      );
+  const loadProducts = useCallback(async ({ quiet = false } = {}) => {
+    const cached = readCachedProducts();
+    if (cached) showProducts(cached);
+    if (!navigator.onLine) {
+      if (!quiet) notify(cached ? "Using saved products (offline)" : "No saved products on this device yet", cached ? "info" : "warning");
       return;
     }
-
     try {
       showProducts(await fetchProducts());
       setLastRefresh(new Date());
-    } catch (err) {
-      console.error("Failed to load products from API", err);
-      if (!cachedProducts) {
-        showSnackbar("Failed to load products", "error");
-      }
+      if (!quiet) notify("Products refreshed", "success");
+    } catch {
+      if (!cached) notify("Failed to load products", "error");
     }
-  };
-
-  // Stock on this device must drop now: the server only hears about the sale at sync
-  const deductSoldStock = () => {
-    deductCachedStock(cart);
-    setProducts(prev => deductStock(prev, cart));
-  };
-
-  // Customer Management Functions
-  const handleSelectCustomer = (customer) => {
-    setSelectedCustomer(customer);
-    showSnackbar(`Customer ${customer.name} selected`, 'success');
-  };
-
-  const handleAddNewCustomer = () => {
-    setCustomerLookupOpen(false);
-    setCustomerQuickAddOpen(true);
-  };
-
-  const handleCustomerCreated = (newCustomer) => {
-    setSelectedCustomer(newCustomer);
-    setCustomerQuickAddOpen(false);
-    showSnackbar(`Customer ${newCustomer.name} created and selected`, 'success');
-  };
-
-  const handleRemoveCustomer = () => {
-    setSelectedCustomer(null);
-    showSnackbar('Customer removed from sale', 'info');
-  };
-
-  // Load products and cart on component mount
-  useEffect(() => {
-    loadProducts();
-
-    // Load saved cart from session
-    const savedCart = localStorage.getItem(storeKey('pos-cart'));
-    if (savedCart) {
-      try {
-        const parsedCart = JSON.parse(savedCart);
-        setCart(parsedCart);
-        showSnackbar('Previous session restored', 'info');
-      } catch (error) {
-        console.error('Failed to load saved cart:', error);
-      }
-    }
+    // Best sellers for the quick-pick tiles; kept on the device for offline use
+    axiosInstance.get("products/top-sellers/").then((res) => {
+      setTopSellerIds(res.data);
+      try { localStorage.setItem(storeKey(TOP_SELLERS_KEY), JSON.stringify(res.data)); } catch { /* storage blocked */ }
+    }).catch(() => {});
   }, []);
 
-  // OfflineManager keeps the saved products fresh while the app is open
+  useEffect(() => { loadProducts({ quiet: true }); }, [loadProducts]);
+
+  // OfflineManager refreshes the saved products in the background
   useEffect(() => {
-    const handleRefreshed = () => {
-      showProducts(readCachedProducts() || []);
-      setLastRefresh(new Date());
-    };
-    window.addEventListener('products-refreshed', handleRefreshed);
-    return () => window.removeEventListener('products-refreshed', handleRefreshed);
+    const onRefreshed = () => { showProducts(readCachedProducts() || []); setLastRefresh(new Date()); };
+    window.addEventListener("products-refreshed", onRefreshed);
+    return () => window.removeEventListener("products-refreshed", onRefreshed);
   }, []);
 
+  // Keep the cart on the latest prices: a cart restored from earlier, or one open while a
+  // manager changes a price, must not charge the old amount
   useEffect(() => {
-    if (scannerActive) {
-      barcodeRef.current?.focus();
+    if (!products.length) return;
+    let changed = 0;
+    let gone = 0;
+    let differs = false;
+    const next = cart.flatMap((item) => {
+      const fresh = byId[item.product.id];
+      if (!fresh) { gone += 1; differs = true; return []; }
+      if (priceSignature(fresh) !== priceSignature(item.product)) changed += 1;
+      if (fresh !== item.product) differs = true;
+      return [{ ...item, quantity: Math.min(item.quantity, Math.max(fresh.stock, 1)), product: fresh }];
+    });
+    if (differs) setCart(next);
+    if (restoredRef.current) {
+      restoredRef.current = false;
+      notify(changed ? `Cart restored. Prices updated for ${changed} item${changed === 1 ? "" : "s"}.` : "Previous cart restored", changed ? "warning" : "info");
+    } else if (changed) {
+      notify(`Prices changed for ${changed} item${changed === 1 ? "" : "s"} in the cart`, "warning");
     }
-  }, [scannerActive]);
+    if (gone) notify(`${gone} item${gone === 1 ? " is" : "s are"} no longer for sale and left the cart`, "warning");
+  }, [products]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const total = calculateTotal();
-
-    // Generate suggested amounts
-    const suggestions = [];
-    if (total > 0) {
-      suggestions.push(total); // Exact amount
-      if (total % 100 !== 0) {
-        suggestions.push(Math.ceil(total / 100) * 100); // Next 100
-      }
-      suggestions.push(total + 100); // Extra 100
-      suggestions.push(total + 500); // Extra 500
-    }
-    setSuggestedAmounts(suggestions);
-  }, [paidAmount, cart]);
-
-  useEffect(() => {
-    // Filter products for quick access
-    const quickAccess = products
-      .filter(product => product.stock > 0)
-      .slice(0, 8);
-    setQuickProducts(quickAccess);
-  }, [products]);
-
-  // Session Management
-  useEffect(() => {
-    // Save cart to localStorage whenever it changes
-    localStorage.setItem(storeKey('pos-cart'), JSON.stringify(cart));
-    localStorage.setItem(storeKey('pos-cart-timestamp'), new Date().toISOString());
+    try { localStorage.setItem(storeKey("pos-cart"), JSON.stringify(cart)); } catch { /* storage blocked */ }
   }, [cart]);
 
-  const handleAddProduct = (product) => {
-    // Check stock - for offline mode using cached stock levels
-    if (product.stock === 0) {
-      showSnackbar(`Product "${product.name}" is out of stock.`, "warning");
-      return;
-    }
+  // ── Cart ─────────────────────────────────────────────────────────────────
+  const findByBarcode = (code) => products.find((p) => String(p.barcode || "").trim().toLowerCase() === String(code).trim().toLowerCase());
 
-    const existingIndex = cart.findIndex(item => item.product.id === product.id);
-    if (existingIndex !== -1) {
-      const existingItem = cart[existingIndex];
-      if (existingItem.quantity >= product.stock) {
-        showSnackbar(`Only ${product.stock} units available`, "warning");
-        return;
-      }
-      const updatedCart = [...cart];
-      updatedCart[existingIndex].quantity += 1;
-      setCart(updatedCart);
-    } else {
-      const productWithNumericPrice = {
-        ...product,
-        price: typeof product.price === 'string' ? parseFloat(product.price) : product.price,
-        bulk_price: product.bulk_price ? (typeof product.bulk_price === 'string' ? parseFloat(product.bulk_price) : product.bulk_price) : null
-      };
-      setCart(prev => [...prev, { product: productWithNumericPrice, quantity: 1 }]);
-    }
+  const addProduct = (product, amount = 1) => {
+    const fresh = byId[product.id] || product;
+    if (fresh.stock <= 0) { notify(`${fresh.name} is out of stock`, "warning"); return false; }
+    const inCart = cart.find((i) => i.product.id === fresh.id)?.quantity || 0;
+    const qty = Math.min(inCart + amount, fresh.stock);
+    if (qty === inCart) { notify(`Only ${fresh.stock} ${unitWord(fresh)} in stock`, "warning"); return false; }
+    setCart((prev) => (prev.some((i) => i.product.id === fresh.id)
+      ? prev.map((i) => (i.product.id === fresh.id ? { ...i, quantity: qty } : i))
+      : [...prev, { product: fresh, quantity: qty }]));
+    setSaleError("");
+    return true;
+  };
 
-    setBarcodeInput("");
-    showSnackbar(`Added ${product.name} to cart`, "success");
+  const setQuantity = (productId, qty) => {
+    const product = byId[productId] || cart.find((i) => i.product.id === productId)?.product;
+    const q = Math.max(1, parseInt(qty) || 1);
+    if (product && q > product.stock) { notify(`Only ${product.stock} in stock`, "warning"); return; }
+    setCart((prev) => prev.map((i) => (i.product.id === productId ? { ...i, quantity: q } : i)));
+  };
 
-    // Refocus barcode input after adding product
-    if (scannerActive) {
-      setTimeout(() => barcodeRef.current?.focus(), 100);
+  const removeItem = (productId) => setCart((prev) => prev.filter((i) => i.product.id !== productId));
+
+  const clearCart = (ask = true) => {
+    if (!cart.length) return;
+    if (ask && !window.confirm(`Clear all ${cart.length} item(s) from the cart?`)) return;
+    setCart([]);
+    setSaleError("");
+  };
+
+  const onSearchEnter = () => {
+    const term = searchText.trim();
+    if (!term) return;
+    const product = findByBarcode(term);
+    if (product) {
+      if (addProduct(product)) notify(`Added ${product.name}`, "success");
+      setSearchText("");
     }
   };
 
-  const handleBarcodeEnter = (e) => {
-    if (e.key === "Enter" && barcodeInput.trim()) {
-      const product = products.find(p =>
-        p.barcode?.toString().toLowerCase() === barcodeInput.trim().toLowerCase()
-      );
-      product
-        ? handleAddProduct(product)
-        : showSnackbar("Product not found", "error");
-      setBarcodeInput("");
-    }
+  const onCameraScan = (code) => {
+    const product = findByBarcode(code);
+    if (!product) { setCameraMessage(`No product with barcode ${code}`); return; }
+    if (addProduct(product)) setCameraMessage(`Added: ${product.name}`);
   };
 
-  // Called by the camera scanner for every barcode it reads
-  const handleCameraScan = (code) => {
-    const product = products.find(p =>
-      p.barcode?.toString().toLowerCase() === code.trim().toLowerCase()
-    );
-    if (!product) {
-      setCameraScanMessage(`No product with barcode ${code}`);
-      return;
-    }
-    handleAddProduct(product);
-    setCameraScanMessage(`Added: ${product.name}`);
-  };
-
-  const handleBarcodeScan = (e) => {
-    if (e.key === "Enter" && barcodeInput.trim()) {
-      handleBarcodeEnter(e);
-    }
-  };
-
-  // Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyPress = (e) => {
-      // Ctrl/Cmd + Key combinations
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        switch (e.key) {
-          case 'Enter':
-            if (cart.length > 0 && paymentOkRef.current) {
-              handleCompleteSale();
-            }
-            break;
-          case 'Delete':
-          case 'Backspace':
-            setCart([]);
-            showSnackbar('Cart cleared', 'info');
-            break;
-          case 'f':
-            barcodeRef.current?.focus();
-            break;
-          case 'r':
-            loadProducts();
-            showSnackbar('Products refreshed', 'success');
-            break;
-          case 'k':
-            setShowShortcutsDialog(true);
-            break;
-          default:
-            break;
-        }
-      }
-
-      // Function keys
-      switch (e.key) {
-        case 'F1':
-          e.preventDefault();
-          setShowShortcutsDialog(true);
-          break;
-        case 'F2':
-          e.preventDefault();
-          barcodeRef.current?.focus();
-          break;
-        case 'F5':
-          e.preventDefault();
-          loadProducts();
-          showSnackbar('Products refreshed', 'success');
-          break;
-        case 'Escape':
-          if (cart.length > 0) {
-            setCart([]);
-            showSnackbar('Cart cleared', 'info');
-          }
-          break;
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyPress);
-    return () => document.removeEventListener('keydown', handleKeyPress);
-  }, [cart, paidAmount]);
-
-  const handleQuantityChange = (productId, newQty) => {
-    const qty = Math.max(1, parseInt(newQty) || 1);
-    const product = products.find(p => p.id === productId);
-
-    if (qty > product.stock) {
-      showSnackbar(`Only ${product.stock} in stock`, "warning");
-      return;
-    }
-
-    setCart(prev => prev.map(item =>
-      item.product.id === productId ? { ...item, quantity: qty } : item
-    ));
-  };
-
-  const incrementQuantity = (productId) => {
-    const item = cart.find(item => item.product.id === productId);
-    if (item) {
-      handleQuantityChange(productId, item.quantity + 1);
-    }
-  };
-
-  const packSize = (product) => (product.is_bulk_product && product.bulk_quantity > 1 ? product.bulk_quantity : null);
-
+  const quantityFromEdit = (edit) => (parseInt(edit.packs) || 0) * (packSize(edit.product) || 0) + (parseInt(edit.singles) || 0);
   const openQuantityEdit = (item) => {
     const size = packSize(item.product);
     setQuantityEdit({
       product: item.product,
-      packs: size ? String(Math.floor(item.quantity / size)) : '',
+      packs: size ? String(Math.floor(item.quantity / size)) : "",
       singles: String(size ? item.quantity % size : item.quantity),
     });
   };
-
-  const quantityFromEdit = (edit) => {
-    const size = packSize(edit.product) || 0;
-    return (parseInt(edit.packs) || 0) * size + (parseInt(edit.singles) || 0);
-  };
-
   const saveQuantityEdit = () => {
     const qty = quantityFromEdit(quantityEdit);
-    if (qty < 1) {
-      showSnackbar('Quantity must be at least 1', 'warning');
-      return;
-    }
-    if (qty > quantityEdit.product.stock) {
-      showSnackbar(`Only ${quantityEdit.product.stock} in stock`, 'warning');
-      return;
-    }
-    handleQuantityChange(quantityEdit.product.id, qty);
+    if (qty < 1) { notify("Quantity must be at least 1", "warning"); return; }
+    if (qty > quantityEdit.product.stock) { notify(`Only ${quantityEdit.product.stock} in stock`, "warning"); return; }
+    setQuantity(quantityEdit.product.id, qty);
     setQuantityEdit(null);
   };
 
-  const decrementQuantity = (productId) => {
-    const item = cart.find(item => item.product.id === productId);
-    if (item && item.quantity > 1) {
-      handleQuantityChange(productId, item.quantity - 1);
-    }
-  };
-
-  const calculateTotal = () => {
-    return cart.reduce((sum, item) => {
-      return sum + calculateItemPrice(item.product, item.quantity);
-    }, 0);
-  };
-
-  const handlePrint = useReactToPrint({
-    contentRef: receiptRef,
-    pageStyle: `
-      @page { 
-        size: 80mm auto; 
-        margin: 0; 
-      }
-      @media print {
-        body { 
-          -webkit-print-color-adjust: exact;
-          margin: 0 !important; 
-          padding: 0 !important;
-        }
-      }
-    `,
-    onBeforeGetContent: () => {
-      setIsPrinting(true);
-      return Promise.resolve();
-    },
-    onAfterPrint: () => {
-      setIsPrinting(false);
-      setTimeout(() => setLastSale(null), 1000);
-    },
-    onPrintError: (error) => {
-      console.error("Print failed:", error);
-      setIsPrinting(false);
-      showSnackbar("Failed to print receipt", "error");
-    }
+  // ── Totals and payment ───────────────────────────────────────────────────
+  const lines = cart.map((item) => {
+    const total = calculateItemPrice(item.product, item.quantity);
+    const regular = (parseFloat(item.product.price) || 0) * item.quantity;
+    return { ...item, total, regular, saving: regular - total };
   });
+  const totalAmount = lines.reduce((s, l) => s + l.total, 0);
+  const itemCount = cart.reduce((s, i) => s + i.quantity, 0);
 
-  // Phones/tablets block automatic printing, so show a receipt screen (share / WhatsApp / print)
-  // instead. Desktops with a connected printer keep the automatic print.
-  const presentReceipt = () => {
-    if (window.matchMedia?.('(pointer: coarse)').matches) {
-      setReceiptDialogOpen(true);
-    } else if (receiptRef.current) {
-      handlePrint();
-    }
-  };
-
-  const resetPayment = () => {
-    setPaymentMethod("CASH");
-    setTransferPart("");
-    setCardPart("");
-  };
-
-  const handleCompleteSale = async () => {
-    if (!paymentOkRef.current) return;
-    const total = calculateTotal();
-    const saleData = {
-      client_ref: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-      total_amount: total,
-      paid_amount: payment.paid,
-      change_given: changeAmount,
-      payment_method: paymentMethod,
-      ...(paymentMethod === "SPLIT" ? { transfer_amount: payment.transfer, card_amount: payment.card } : {}),
-      items: cart.map(item => ({
-        product_id: item.product.id,
-        quantity: item.quantity,
-        price_at_sale: Math.round((calculateItemPrice(item.product, item.quantity) / item.quantity) * 100) / 100 // Average unit price
-      }))
-    };
-
-    // Add customer ID if a customer is selected
-    if (selectedCustomer) {
-      saleData.customer_id = selectedCustomer.id;
-    }
-
-    // OFFLINE MODE: Save sale locally if offline
-    if (!isOnline) {
-      const offlineId = saveOfflineSale(saleData);
-      deductSoldStock();
-
-      const saleWithDetails = {
-        total_amount: total,
-        paid_amount: payment.paid,
-        change_given: changeAmount,
-        payment_method: paymentMethod,
-        transfer_amount: payment.transfer,
-        card_amount: payment.card,
-        items: cart.map(item => ({
-          product: {
-            ...item.product,
-            price: typeof item.product.price === 'string'
-              ? parseFloat(item.product.price)
-              : item.product.price,
-            name: item.product.name
-          },
-          quantity: item.quantity,
-          price_at_sale: Math.round((calculateItemPrice(item.product, item.quantity) / item.quantity) * 100) / 100
-        })),
-        timestamp: new Date().toLocaleString(),
-        customer: selectedCustomer ? {
-          ...selectedCustomer,
-          loyalty_points: parseInt(selectedCustomer.loyalty_points) || 0
-        } : null,
-        isOffline: true,
-        offline_id: offlineId
-      };
-
-      setLastSale(saleWithDetails);
-      showSnackbar("✅ Sale saved offline! Connect to internet to sync.", "success");
-
-      // Auto-print receipt for offline sales
-      setTimeout(() => {
-        presentReceipt();
-
-        // Reset form
-        setCart([]);
-        setPaidAmount("");
-        resetPayment();
-        setBarcodeInput("");
-        setSelectedCustomer(null);
-        localStorage.removeItem(storeKey('pos-cart'));
-        if (scannerActive) barcodeRef.current?.focus();
-      }, 500);
-
-      return;
-    }
-
-    // ONLINE MODE: Process sale normally
-    try {
-      await axiosInstance.post('/sales/', saleData);
-
-      const saleWithDetails = {
-        total_amount: total,
-        paid_amount: payment.paid,
-        change_given: changeAmount,
-        payment_method: paymentMethod,
-        transfer_amount: payment.transfer,
-        card_amount: payment.card,
-        items: cart.map(item => ({
-          product: {
-            ...item.product,
-            price: typeof item.product.price === 'string'
-              ? parseFloat(item.product.price)
-              : item.product.price,
-            name: item.product.name
-          },
-          quantity: item.quantity,
-          price_at_sale: Math.round((calculateItemPrice(item.product, item.quantity) / item.quantity) * 100) / 100
-        })),
-        timestamp: new Date().toLocaleString(),
-        customer: selectedCustomer ? {
-          ...selectedCustomer,
-          loyalty_points: parseInt(selectedCustomer.loyalty_points) || 0
-        } : null,
-        isOffline: false
-      };
-
-      setLastSale(saleWithDetails);
-      showSnackbar("✅ Sale completed!" + (selectedCustomer ? ` ${selectedCustomer.name} earned loyalty points!` : ""), "success");
-
-      // Clear session data after successful sale
-      localStorage.removeItem(storeKey('pos-cart'));
-      localStorage.removeItem(storeKey('pos-cart-timestamp'));
-
-      // Auto-print receipt
-      setTimeout(() => {
-        presentReceipt();
-
-        // Reset form
-        setCart([]);
-        setPaidAmount("");
-        resetPayment();
-        setBarcodeInput("");
-        setSelectedCustomer(null);
-        if (scannerActive) barcodeRef.current?.focus();
-      }, 500);
-
-    } catch (err) {
-      console.error("Sale failed:", err);
-
-      // If online sale fails, save offline as fallback
-      if (err.message === "Network Error" || !err.response) {
-        const offlineId = saveOfflineSale(saleData);
-        deductSoldStock();
-        showSnackbar("🌐 Network error - sale saved offline", "warning");
-
-        const saleWithDetails = {
-          ...saleData,
-          offline_id: offlineId,
-          items: cart.map(item => ({
-            product: item.product,
-            quantity: item.quantity
-          })),
-          timestamp: new Date().toLocaleString(),
-          customer: selectedCustomer,
-          isOffline: true
-        };
-
-        setLastSale(saleWithDetails);
-
-        setTimeout(() => {
-          presentReceipt();
-          setCart([]);
-          setPaidAmount("");
-          resetPayment();
-          setSelectedCustomer(null);
-          localStorage.removeItem(storeKey('pos-cart'));
-        }, 500);
-      } else {
-        showSnackbar("❌ Sale could not be completed", "error");
-      }
-    }
-  };
-
-  const clearSessionData = () => {
-    localStorage.removeItem(storeKey('pos-cart'));
-    localStorage.removeItem(storeKey('pos-cart-timestamp'));
-    setCart([]);
-    setSelectedCustomer(null);
-    showSnackbar('Session data cleared', 'success');
-  };
-
-  const handleManualSync = async () => {
-    if (!isOnline) {
-      showSnackbar('No internet connection', 'warning');
-      return;
-    }
-
-    try {
-      const syncedCount = await syncPendingSales();
-      if (syncedCount > 0) {
-        showSnackbar(`✅ Synced ${syncedCount} offline sales`, 'success');
-        // Refresh products after sync to get updated stock levels
-        loadProducts();
-      } else if (pendingSales.length === 0) {
-        showSnackbar('No pending sales to sync', 'info');
-      } else {
-        showSnackbar('Sales are still waiting to sync', 'warning');
-      }
-    } catch (error) {
-      showSnackbar('❌ Sync failed', 'error');
-    }
-  };
-
-  const clearProductCache = () => {
-    if (!isOnline) {
-      showSnackbar('Saved products are needed while offline', 'warning');
-      return;
-    }
-    clearCachedProducts();
-    showSnackbar('Product cache cleared', 'success');
-    loadProducts();
-  };
-
-
-  const totalAmount = calculateTotal();
-
-  // Cash due is what's left after transfer/POS; change only ever comes out of cash
   const payment = (() => {
     const total = totalAmount;
     const num = (v) => parseFloat(v) || 0;
-    const r2 = (v) => Math.round(v * 100) / 100;
     if (paymentMethod === "TRANSFER" || paymentMethod === "POS") {
       return { transfer: paymentMethod === "TRANSFER" ? total : 0, card: paymentMethod === "POS" ? total : 0,
-        cashDue: 0, cashReceived: 0, paid: total, change: 0, ok: total > 0, reason: "" };
+        cashDue: 0, cashReceived: 0, paid: total, change: 0, ok: total > 0, reason: total > 0 ? "" : "Add products to the cart" };
     }
     const transfer = paymentMethod === "SPLIT" ? num(transferPart) : 0;
     const card = paymentMethod === "SPLIT" ? num(cardPart) : 0;
@@ -760,808 +268,556 @@ const SalesPage = () => {
     const cashReceived = num(paidAmount);
     const change = r2(cashReceived - cashDue);
     let reason = "";
-    if (paymentMethod === "SPLIT" && transfer + card <= 0) reason = "Enter the transfer or POS part";
+    if (total <= 0) reason = "Add products to the cart";
+    else if (paymentMethod === "SPLIT" && transfer + card <= 0) reason = "Enter the transfer or POS part";
     else if (transfer + card > total) reason = "Transfer and POS are more than the total";
     else if (cashDue > 0 && paidAmount === "") reason = paymentMethod === "SPLIT" ? "Enter the cash received" : "Enter amount paid";
     else if (change < 0) reason = `Short by ${formatCurrency(-change)}`;
     return { transfer, card, cashDue, cashReceived, paid: r2(cashReceived + transfer + card),
-      change: Math.max(change, 0), short: change < 0 ? -change : 0, ok: total > 0 && !reason, reason };
+      change: Math.max(change, 0), short: change < 0 ? -change : 0, ok: !reason, reason };
   })();
-  const changeAmount = payment.change;
-  paymentOkRef.current = payment.ok;
 
-  // 🔥 Cart Item Component with Bulk Pricing - Enhanced with discount display
-  const CartItemRow = ({ item, onQuantityChange, onRemove }) => {
-    const product = item.product;
-    const totalPrice = calculateItemPrice(product, item.quantity);
-    const unitPrice = parseFloat(product.price) || 0;
-    const regularPrice = unitPrice * item.quantity;
+  const quickAmounts = useMemo(() => {
+    const due = payment.cashDue || totalAmount;
+    if (due <= 0) return [];
+    const options = [due, Math.ceil(due / 500) * 500, Math.ceil(due / 1000) * 1000, Math.ceil(due / 1000) * 1000 + 1000];
+    return [...new Set(options.map((x) => r2(x)))].slice(0, 4);
+  }, [payment.cashDue, totalAmount]);
 
-    // Check if any discount is applied
-    const hasDiscount = totalPrice < regularPrice;
-    const discountAmount = regularPrice - totalPrice;
+  const resetAfterSale = () => {
+    setCart([]);
+    setPaidAmount("");
+    setPaymentMethod("CASH");
+    setTransferPart("");
+    setCardPart("");
+    setSelectedCustomer(null);
+    setCheckoutOpen(false);
+    setSaleError("");
+    setTimeout(() => searchRef.current?.focus(), 150);
+  };
 
+  // ── Receipt ──────────────────────────────────────────────────────────────
+  const handlePrint = useReactToPrint({
+    contentRef: receiptRef,
+    pageStyle: "@page { size: 80mm auto; margin: 0; } @media print { body { -webkit-print-color-adjust: exact; margin: 0 !important; padding: 0 !important; } }",
+    onBeforeGetContent: () => { setIsPrinting(true); return Promise.resolve(); },
+    onAfterPrint: () => setIsPrinting(false),
+    onPrintError: () => { setIsPrinting(false); notify("Failed to print receipt", "error"); },
+  });
+  // Phones block automatic printing, so they get a receipt screen (share / WhatsApp / print)
+  const presentReceipt = () => {
+    if (window.matchMedia?.("(pointer: coarse)").matches) setReceiptOpen(true);
+    else if (receiptRef.current) handlePrint();
+  };
+
+  // ── Completing a sale ────────────────────────────────────────────────────
+  const completeSale = async () => {
+    if (!payment.ok || saving || !cart.length) return;
+    setSaving(true);
+    setSaleError("");
+    const saleData = {
+      client_ref: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+      total_amount: r2(totalAmount),
+      paid_amount: payment.paid,
+      change_given: payment.change,
+      payment_method: paymentMethod,
+      ...(paymentMethod === "SPLIT" ? { transfer_amount: payment.transfer, card_amount: payment.card } : {}),
+      items: lines.map((l) => ({
+        product_id: l.product.id, quantity: l.quantity,
+        price_at_sale: r2(l.total / l.quantity), // average unit price; the server checks it against the list price
+      })),
+      ...(selectedCustomer ? { customer_id: selectedCustomer.id } : {}),
+    };
+    const receipt = (offline) => ({
+      total_amount: r2(totalAmount), paid_amount: payment.paid, change_given: payment.change,
+      payment_method: paymentMethod, transfer_amount: payment.transfer, card_amount: payment.card,
+      items: lines.map((l) => ({ product: l.product, quantity: l.quantity, price_at_sale: r2(l.total / l.quantity), line_total: r2(l.total) })),
+      timestamp: new Date().toLocaleString(),
+      customer: selectedCustomer ? { ...selectedCustomer, loyalty_points: parseInt(selectedCustomer.loyalty_points) || 0 } : null,
+      isOffline: offline,
+    });
+    const finishOffline = (message) => {
+      const offlineId = saveOfflineSale(saleData);
+      deductCachedStock(cart);
+      setProducts((prev) => deductStock(prev, cart));
+      setLastSale({ ...receipt(true), offline_id: offlineId });
+      notify(message, "warning");
+      setTimeout(() => { presentReceipt(); resetAfterSale(); }, 300);
+    };
+
+    if (!isOnline) {
+      finishOffline("Sale saved offline. It will sync when you're back online.");
+      setSaving(false);
+      return;
+    }
+    try {
+      await axiosInstance.post("/sales/", saleData);
+      setLastSale(receipt(false));
+      notify(selectedCustomer ? `Sale completed. ${selectedCustomer.name} earned loyalty points.` : "Sale completed", "success");
+      setTimeout(() => { presentReceipt(); resetAfterSale(); }, 300);
+      loadProducts({ quiet: true });
+    } catch (err) {
+      if (!err.response) {
+        finishOffline("No connection. Sale saved offline and will sync later.");
+      } else {
+        const data = err.response.data;
+        const reason = data && typeof data === "object" ? Object.values(data).flat().join(" ") : "";
+        setSaleError(reason || "Sale could not be completed");
+        notify("Sale not completed. See the reason in the cart.", "error");
+        if (/listed price|match its items/i.test(reason)) loadProducts({ quiet: true }); // pick up new prices
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+  completeRef.current = completeSale;
+
+  // ── Keyboard: shortcuts that can't lose a cart ───────────────────────────
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); completeRef.current?.(); return; }
+      if (e.key === "F2" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      if (e.key === "F1") { e.preventDefault(); setShortcutsOpen(true); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  // ── Sync ─────────────────────────────────────────────────────────────────
+  const manualSync = async () => {
+    if (!isOnline) { notify("No internet connection", "warning"); return; }
+    try {
+      const synced = await syncPendingSales();
+      if (synced > 0) { notify(`Synced ${synced} offline sale${synced === 1 ? "" : "s"}`, "success"); loadProducts({ quiet: true }); }
+      else notify(pendingSales.length ? "Sales are still waiting to sync" : "Nothing waiting to sync", pendingSales.length ? "warning" : "info");
+    } catch {
+      notify("Sync failed", "error");
+    }
+  };
+
+  // ── Product tiles ────────────────────────────────────────────────────────
+  const categories = useMemo(() => {
+    const seen = new Map();
+    products.forEach((p) => { if (p.category) seen.set(p.category.id, p.category.name); });
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [products]);
+
+  const tiles = useMemo(() => {
+    if (browse === "top") {
+      const top = topSellerIds.map((id) => byId[id]).filter(Boolean);
+      const fill = products.filter((p) => p.stock > 0 && !topSellerIds.includes(p.id));
+      return [...top, ...fill].slice(0, isDesktop ? 12 : 8);
+    }
+    return products.filter((p) => String(p.category?.id) === browse).sort((a, b) => a.name.localeCompare(b.name));
+  }, [browse, topSellerIds, byId, products, isDesktop]);
+
+  const inCart = (id) => cart.find((i) => i.product.id === id)?.quantity || 0;
+
+  const tile = (p) => {
+    const qty = inCart(p.id);
+    const out = p.stock <= 0;
+    const size = packSize(p);
     return (
-      <TableRow key={product.id} hover>
-        <TableCell>
-          <Box>
-            <Typography variant="body2" fontWeight="medium">
-              {product.name}
-              {product.is_bulk_product && (
-                <Chip
-                  label="BULK"
-                  size="small"
-                  color="primary"
-                  variant="outlined"
-                  sx={{ ml: 1 }}
-                />
-              )}
-            </Typography>
-            {product.is_bulk_product && product.bulk_quantity > 1 && (
-              <Typography variant="caption" color="textSecondary">
-                {product.bulk_quantity} {product.unit_of_measure || 'units'} for {formatCurrency(product.bulk_price)}
-              </Typography>
-            )}
-          </Box>
-        </TableCell>
-        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-          <Box>
-            <Typography variant="body2">
-              {product.is_bulk_product ?
-                `${formatCurrency(product.unit_price || unitPrice)}/unit` :
-                formatCurrency(unitPrice)
-              }
-            </Typography>
-            {product.is_bulk_product && product.bulk_price && (
-              <Typography variant="caption" color="primary.main">
-                ({formatCurrency(product.bulk_price)} per {product.bulk_quantity})
-              </Typography>
-            )}
-          </Box>
-        </TableCell>
-        <TableCell>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <IconButton
-              size="small"
-              onClick={() => decrementQuantity(product.id)}
-              disabled={item.quantity <= 1}
-            >
-              <RemoveIcon fontSize="small" />
-            </IconButton>
-            <Tooltip title="Type a quantity">
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => openQuantityEdit(item)}
-                sx={{ minWidth: 44, px: 1 }}
-              >
-                {item.quantity}
-              </Button>
-            </Tooltip>
-            <IconButton
-              size="small"
-              onClick={() => incrementQuantity(product.id)}
-            >
-              <AddIcon fontSize="small" />
-            </IconButton>
-          </Box>
-          {packSize(product) && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
-              <Button
-                size="small"
-                onClick={() => onQuantityChange(product.id, item.quantity + product.bulk_quantity)}
-                sx={{ px: 1, minWidth: 0 }}
-              >
-                +1 pack
-              </Button>
-              {item.quantity >= product.bulk_quantity && (
-                <Typography variant="caption" color="text.secondary">
-                  {Math.floor(item.quantity / product.bulk_quantity)} {Math.floor(item.quantity / product.bulk_quantity) === 1 ? 'pack' : 'packs'}
-                  {item.quantity % product.bulk_quantity > 0 && ` + ${item.quantity % product.bulk_quantity}`}
-                </Typography>
-              )}
-            </Box>
+      <Grid key={p.id} size={{ xs: 6, sm: 4, md: 4, lg: 3 }}>
+        <Paper variant="outlined" onClick={() => !out && addProduct(p)} sx={{
+          p: 1.25, borderRadius: 2.5, height: "100%", cursor: out ? "not-allowed" : "pointer", opacity: out ? 0.5 : 1,
+          position: "relative", userSelect: "none", transition: "transform .08s",
+          borderColor: qty ? "primary.main" : "divider", borderWidth: qty ? 2 : 1,
+          "&:active": { transform: out ? "none" : "scale(0.97)" },
+          "&:hover": { bgcolor: out ? undefined : alpha(theme.palette.primary.main, 0.04) },
+        }}>
+          {qty > 0 && (
+            <Box sx={{ position: "absolute", top: 6, right: 6, minWidth: 22, height: 22, px: 0.5, borderRadius: 11, background: BRAND_GRADIENT,
+              color: "#fff", fontSize: 12, fontWeight: 800, display: "grid", placeItems: "center" }}>{qty}</Box>
           )}
-        </TableCell>
-        <TableCell>
-          <Box>
-            <Typography variant="body2" fontWeight="bold">
-              {formatCurrency(totalPrice)}
-            </Typography>
-            {hasDiscount && (
-              <Box>
-                <Typography variant="caption" color="success.main">
-                  <DiscountIcon fontSize="small" sx={{ fontSize: 12, mr: 0.5 }} />
-                  Discount: -{formatCurrency(discountAmount)}
-                </Typography>
-                <Typography variant="caption" color="textSecondary" display="block">
-                  (Was: {formatCurrency(regularPrice)})
-                </Typography>
-              </Box>
-            )}
-            {product.is_bulk_product && item.quantity >= product.bulk_quantity && !hasDiscount && (
-              <Typography variant="caption" color="primary.main">
-                <DiscountIcon fontSize="small" sx={{ fontSize: 12, mr: 0.5 }} />
-                Bulk pricing applied
-              </Typography>
-            )}
-          </Box>
-        </TableCell>
-        <TableCell>
-          <IconButton
-            size="small"
-            color="error"
-            onClick={() => onRemove(product.id)}
-          >
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </TableCell>
-      </TableRow>
+          <Typography variant="body2" fontWeight={700} sx={{ pr: qty ? 3 : 0, lineHeight: 1.25, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: "2.5em" }}>
+            {p.name}
+          </Typography>
+          <Typography variant="body2" fontWeight={800} color="primary" sx={{ mt: 0.5 }}>{naira(p.price)}</Typography>
+          <Typography variant="caption" color={out ? "error.main" : p.stock <= 5 ? "warning.main" : "text.secondary"} display="block">
+            {out ? "Out of stock" : `${p.stock.toLocaleString("en-NG")} left`}{size ? ` · ctn ${size}` : ""}
+          </Typography>
+        </Paper>
+      </Grid>
     );
   };
 
-  // Keyboard Shortcuts Dialog
-  const ShortcutsDialog = () => (
-    <Dialog open={showShortcutsDialog} onClose={() => setShowShortcutsDialog(false)} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        <Box display="flex" alignItems="center" gap={1}>
-          <KeyboardIcon />
-          Keyboard Shortcuts
+  // ── Cart and payment panel (right column on laptops, full screen on phones) ──
+  const cartLines = (
+    <Box>
+      {lines.length === 0 ? (
+        <Box sx={{ textAlign: "center", py: 4, color: "text.secondary" }}>
+          <CartIcon sx={{ fontSize: 44, opacity: 0.4 }} />
+          <Typography variant="body2">Scan, search or tap a product to start.</Typography>
         </Box>
-      </DialogTitle>
-      <DialogContent>
-        <Grid container spacing={2} sx={{ mt: 1 }}>
-          <Grid item size={{ xs: 12, sm: 6 }}>
-            <Typography variant="subtitle2" gutterBottom>Global Shortcuts</Typography>
-            <Typography variant="body2"><strong>Ctrl + Enter:</strong> Complete Sale</Typography>
-            <Typography variant="body2"><strong>Ctrl + Delete:</strong> Clear Cart</Typography>
-            <Typography variant="body2"><strong>Ctrl + F:</strong> Focus Barcode</Typography>
-            <Typography variant="body2"><strong>Ctrl + R:</strong> Refresh Products</Typography>
-            <Typography variant="body2"><strong>Ctrl + K:</strong> Show Shortcuts</Typography>
-          </Grid>
-          <Grid item size={{ xs: 12, sm: 6 }}>
-            <Typography variant="subtitle2" gutterBottom>Function Keys</Typography>
-            <Typography variant="body2"><strong>F1:</strong> Show Shortcuts</Typography>
-            <Typography variant="body2"><strong>F2:</strong> Focus Barcode</Typography>
-            <Typography variant="body2"><strong>F5:</strong> Refresh Products</Typography>
-            <Typography variant="body2"><strong>Esc:</strong> Clear Cart</Typography>
-          </Grid>
-          <Grid item size={{ xs: 12 }}>
-            <Divider sx={{ my: 1 }} />
-            <Typography variant="subtitle2" gutterBottom>Bulk Pricing Features</Typography>
-            <Typography variant="body2">
-              • Automatic bulk pricing for products marked as bulk<br />
-              • Bulk discounts applied when quantity thresholds are met<br />
-              • Clear labeling for bulk products in cart
+      ) : lines.map((l) => {
+        const p = l.product;
+        const size = packSize(p);
+        return (
+          <Box key={p.id} sx={{ py: 1.25, borderBottom: 1, borderColor: "divider" }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body2" fontWeight={700} noWrap>{p.name}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {naira(p.price)} each{size ? ` · ${size} for ${naira(p.bulk_price)}` : ""}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+                <Typography variant="body2" fontWeight={800}>{formatCurrency(l.total)}</Typography>
+                {l.saving > 0.005 && (
+                  <Typography variant="caption" color="success.main" sx={{ display: "inline-flex", alignItems: "center", gap: 0.25 }}>
+                    <DiscountIcon sx={{ fontSize: 12 }} />saved {naira(l.saving)}
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.75, flexWrap: "wrap" }}>
+              <IconButton size="small" onClick={() => setQuantity(p.id, l.quantity - 1)} disabled={l.quantity <= 1} sx={{ border: 1, borderColor: "divider" }}>
+                <RemoveIcon fontSize="small" />
+              </IconButton>
+              <Button size="small" variant="outlined" onClick={() => openQuantityEdit(l)} sx={{ minWidth: 52, fontWeight: 800 }}>{l.quantity}</Button>
+              <IconButton size="small" onClick={() => setQuantity(p.id, l.quantity + 1)} sx={{ border: 1, borderColor: "divider" }}>
+                <AddIcon fontSize="small" />
+              </IconButton>
+              {size && (
+                <Button size="small" onClick={() => setQuantity(p.id, l.quantity + size)} sx={{ minWidth: 0, px: 1 }}>+1 ctn</Button>
+              )}
+              {size && l.quantity >= size && (
+                <Typography variant="caption" color="text.secondary">
+                  {Math.floor(l.quantity / size)} ctn{l.quantity % size ? ` + ${l.quantity % size}` : ""}
+                </Typography>
+              )}
+              <Box sx={{ flex: 1 }} />
+              <IconButton size="small" color="error" onClick={() => removeItem(p.id)}><DeleteIcon fontSize="small" /></IconButton>
+            </Box>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+
+  const paymentPanel = (
+    <Box>
+      {/* Customer */}
+      {selectedCustomer ? (
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, mb: 1.5, display: "flex", alignItems: "center", gap: 1, borderColor: "success.main", bgcolor: alpha(theme.palette.success.main, 0.06) }}>
+          <PersonIcon color="success" />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="body2" fontWeight={700} noWrap>{selectedCustomer.name}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+              {selectedCustomer.phone} · <LoyaltyIcon sx={{ fontSize: 13 }} /> {selectedCustomer.loyalty_points} pts
             </Typography>
-          </Grid>
-        </Grid>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setShowShortcutsDialog(false)}>Close</Button>
-      </DialogActions>
-    </Dialog>
+          </Box>
+          <IconButton size="small" onClick={() => setSelectedCustomer(null)}><CloseIcon fontSize="small" /></IconButton>
+        </Paper>
+      ) : (
+        <Button fullWidth variant="text" startIcon={<PersonAddIcon />} onClick={() => setCustomerLookupOpen(true)} sx={{ mb: 1, justifyContent: "flex-start" }}>
+          Add customer (loyalty points)
+        </Button>
+      )}
+
+      {/* Method */}
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 0.75, mb: 1.5 }}>
+        {[["CASH", "Cash", CashIcon], ["TRANSFER", "Transfer", BankIcon], ["POS", "POS", CardIcon], ["SPLIT", "Split", SplitIcon]].map(([value, label, Icon]) => (
+          <Button key={value} variant={paymentMethod === value ? "contained" : "outlined"} onClick={() => setPaymentMethod(value)}
+            sx={{ minWidth: 0, px: 0.5, py: 0.75, flexDirection: "column", gap: 0.25, fontWeight: 700, fontSize: 12,
+              ...(paymentMethod === value ? { background: BRAND_GRADIENT } : {}) }}>
+            <Icon fontSize="small" />{label}
+          </Button>
+        ))}
+      </Box>
+
+      {(paymentMethod === "TRANSFER" || paymentMethod === "POS") && totalAmount > 0 && (
+        <Alert severity="info" sx={{ mb: 1.5, py: 0.25 }}>
+          {paymentMethod === "TRANSFER"
+            ? <>Check the <b>{formatCurrency(totalAmount)}</b> transfer alert first.</>
+            : <>Check the POS slip shows <b>{formatCurrency(totalAmount)}</b> approved.</>}
+        </Alert>
+      )}
+
+      {paymentMethod === "SPLIT" && (
+        <Box sx={{ display: "flex", gap: 1, mb: 1.5 }}>
+          <TextField label="Transfer part" type="number" size="small" value={transferPart} onChange={(e) => setTransferPart(e.target.value)}
+            inputProps={{ min: 0, inputMode: "decimal" }} sx={{ flex: 1 }} />
+          <TextField label="POS part" type="number" size="small" value={cardPart} onChange={(e) => setCardPart(e.target.value)}
+            inputProps={{ min: 0, inputMode: "decimal" }} sx={{ flex: 1 }} />
+        </Box>
+      )}
+
+      {(paymentMethod === "CASH" || (paymentMethod === "SPLIT" && payment.cashDue > 0)) && (
+        <>
+          {paymentMethod === "SPLIT" && (
+            <Typography variant="body2" sx={{ mb: 1 }}>Cash to collect: <b>{formatCurrency(payment.cashDue)}</b></Typography>
+          )}
+          <TextField fullWidth size="small" type="number" label={paymentMethod === "SPLIT" ? "Cash received" : "Amount paid"}
+            value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)}
+            inputProps={{ min: 0, inputMode: "decimal" }}
+            InputProps={{ startAdornment: <InputAdornment position="start">₦</InputAdornment> }} sx={{ mb: 1 }} />
+          {quickAmounts.length > 0 && (
+            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mb: 1.5 }}>
+              {quickAmounts.map((a, i) => (
+                <Chip key={a} size="small" color="primary" label={i === 0 ? `Exact ${naira(a)}` : naira(a)}
+                  variant={parseFloat(paidAmount) === a ? "filled" : "outlined"} onClick={() => setPaidAmount(String(a))} sx={{ fontWeight: 600 }} />
+              ))}
+            </Box>
+          )}
+        </>
+      )}
+
+      {payment.ok && payment.change > 0 && (
+        <Paper sx={{ p: 1.25, mb: 1.5, borderRadius: 2, textAlign: "center", bgcolor: alpha(theme.palette.success.main, 0.12), color: "success.main" }} elevation={0}>
+          <Typography variant="caption" fontWeight={700}>CHANGE</Typography>
+          <Typography variant="h5" fontWeight={800}>{formatCurrency(payment.change)}</Typography>
+        </Paper>
+      )}
+      {/* Only once something has been typed: an empty box isn't an error yet */}
+      {cart.length > 0 && payment.reason && (
+        (paymentMethod === "CASH" && paidAmount !== "" && payment.short > 0) ||
+        (paymentMethod === "SPLIT" && (transferPart !== "" || cardPart !== "" || paidAmount !== ""))
+      ) && (
+        <Alert severity="error" sx={{ mb: 1.5, py: 0.25 }}>{payment.reason}</Alert>
+      )}
+      {saleError && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setSaleError("")}>{saleError}</Alert>}
+
+      <Button fullWidth size="large" variant="contained" onClick={completeSale}
+        disabled={!cart.length || !payment.ok || saving || isPrinting}
+        startIcon={saving ? <CircularProgress size={18} color="inherit" /> : isOnline ? <ReceiptIcon /> : <SaveIcon />}
+        sx={{ py: 1.5, fontWeight: 800, fontSize: 16, ...(isOnline ? { background: BRAND_GRADIENT } : { bgcolor: "warning.main" }) }}>
+        {saving ? "Saving…" : `${isOnline ? "Complete sale" : "Save sale offline"} · ${naira(totalAmount)}`}
+      </Button>
+      {isDesktop && cart.length > 0 && (
+        <Typography variant="caption" color="text.secondary" display="block" textAlign="center" sx={{ mt: 0.75 }}>Ctrl + Enter to complete</Typography>
+      )}
+    </Box>
+  );
+
+  const cartHeader = (
+    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+      <Typography variant="subtitle1" fontWeight={800}>Cart {cart.length > 0 && `· ${itemCount.toLocaleString("en-NG")} item${itemCount === 1 ? "" : "s"}`}</Typography>
+      {cart.length > 0 && <Button size="small" color="error" startIcon={<ClearCartIcon />} onClick={() => clearCart()}>Clear</Button>}
+    </Box>
+  );
+
+  const totalBlock = (
+    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", py: 1.25 }}>
+      <Typography fontWeight={700}>Total</Typography>
+      <Typography variant="h5" fontWeight={800} color="primary">{formatCurrency(totalAmount)}</Typography>
+    </Box>
   );
 
   return (
-    <Box sx={{ p: { xs: 1.5, md: 3 } }}>
-      <BarcodeScannerDialog
-        open={cameraScannerOpen}
-        onClose={() => setCameraScannerOpen(false)}
-        onDetected={handleCameraScan}
-        lastResult={cameraScanMessage}
-      />
-      <Grid container spacing={{ xs: 1.5, md: 3 }}>
-        {/* Header with Connection Status */}
-        <Grid item size={{ xs: 12 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, flexWrap: 'wrap', gap: 1 }}>
-            <Box>
-              <Typography variant="h5" component="h1" fontWeight="bold" sx={{ fontSize: { xs: '1.2rem', md: '1.5rem' } }}>
-                Point of Sale
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
-                Last refreshed: {lastRefresh.toLocaleTimeString()}
-                {cart.length > 0 && ` • Session saved: ${cart.length} items`}
-                {selectedCustomer && ` • Customer: ${selectedCustomer.name}`}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
-              {/* Connection Status */}
-              <Tooltip title={isOnline ? "Online - Connected to server" : "Offline - Working locally"}>
-                <Chip
-                  icon={isOnline ? <OnlineIcon /> : <OfflineIcon />}
-                  label={isOnline ? "Online" : "Offline"}
-                  color={isOnline ? "success" : "warning"}
-                  variant={isOnline ? "filled" : "outlined"}
-                />
-              </Tooltip>
-
-              {/* Pending Sales Badge */}
-              {pendingSales.length > 0 && (
-                <Tooltip title={`${pendingSales.length} sales waiting to sync`}>
-                  <Badge badgeContent={pendingSales.length} color="error">
-                    <IconButton onClick={handleManualSync} color="primary" disabled={!isOnline}>
-                      <SyncingIcon />
-                    </IconButton>
-                  </Badge>
-                </Tooltip>
-              )}
-
-              {/* Sync Button */}
-              {pendingSales.length > 0 && (
-                <Tooltip title={`Sync ${pendingSales.length} offline sales`}>
-                  <Button
-                    variant="outlined"
-                    color="warning"
-                    onClick={handleManualSync}
-                    startIcon={<CloudUploadIcon />}
-                    size="small"
-                    disabled={!isOnline}
-                  >
-                    Sync ({pendingSales.length})
-                  </Button>
-                </Tooltip>
-              )}
-
-              <Tooltip title="Refresh Products (Ctrl+R)">
-                <IconButton onClick={loadProducts} color="primary">
-                  <RefreshIcon />
-                </IconButton>
-              </Tooltip>
-
-              <Tooltip title="Clear Product Cache">
-                <IconButton onClick={clearProductCache} color="secondary">
-                  <DeleteIcon />
-                </IconButton>
-              </Tooltip>
-
-              <Tooltip title="Keyboard Shortcuts (Ctrl+K)">
-                <IconButton onClick={() => setShowShortcutsDialog(true)}>
-                  <KeyboardIcon />
-                </IconButton>
-              </Tooltip>
-
-              {cart.length > 0 && (
-                <Tooltip title="Clear Session Data">
-                  <IconButton onClick={clearSessionData} color="error">
-                    <DeleteIcon />
-                  </IconButton>
-                </Tooltip>
-              )}
-
-              <Chip
-                icon={<QrCodeScannerIcon />}
-                label={scannerActive ? "Scanner Active" : "Scanner Inactive"}
-                color={scannerActive ? "success" : "default"}
-                onClick={() => setScannerActive(!scannerActive)}
-                variant={scannerActive ? "filled" : "outlined"}
-              />
-            </Box>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, pb: { xs: cart.length ? 12 : 2, md: 3 }, maxWidth: 1500, mx: "auto" }}>
+      {/* Header */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1, mb: 1.5 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+          <Box sx={{ width: 36, height: 36, borderRadius: 2.5, display: "grid", placeItems: "center", background: BRAND_GRADIENT, color: "#fff", flexShrink: 0 }}>
+            <PosIcon fontSize="small" />
           </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h5" fontWeight={800} sx={{ fontSize: { xs: "1.25rem", md: "1.5rem" }, lineHeight: 1.1 }}>Sell</Typography>
+            {lastRefresh && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: { xs: "none", sm: "block" } }}>
+                {products.length} products · updated {lastRefresh.toLocaleTimeString("en-NG", { hour: "numeric", minute: "2-digit" })}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          <Tooltip title={pendingSales.length ? `${pendingSales.length} sale(s) waiting to sync. Tap to sync.` : isOnline ? "Online" : "Offline: sales are saved on this device"}>
+            <Badge badgeContent={pendingSales.length} color="error">
+              <Chip size="small" onClick={pendingSales.length ? manualSync : undefined}
+                icon={pendingSales.length ? <SyncIcon /> : isOnline ? <OnlineIcon /> : <OfflineIcon />}
+                label={isOnline ? (pendingSales.length ? "Sync" : "Online") : "Offline"}
+                color={isOnline ? "success" : "warning"} variant={isOnline ? "outlined" : "filled"} sx={{ fontWeight: 700 }} />
+            </Badge>
+          </Tooltip>
+          <IconButton onClick={(e) => setMenuAnchor(e.currentTarget)}><MoreIcon /></IconButton>
+        </Box>
+      </Box>
 
-          {/* Offline Warning Banner */}
-          {!isOnline && (
-            <Alert
-              severity="warning"
-              sx={{ mb: 2 }}
-              action={
-                <Button color="inherit" size="small" onClick={handleManualSync}>
-                  Try Sync
-                </Button>
-              }
-            >
-              You are currently offline. Sales will be saved locally and synced when connection is restored.
-              {pendingSales.length > 0 && ` ${pendingSales.length} sales pending sync.`}
-            </Alert>
-          )}
-        </Grid>
+      {!isOnline && (
+        <Alert severity="warning" sx={{ mb: 1.5 }}>
+          Offline. Keep selling: sales are saved on this device and sync when the internet is back
+          {pendingSales.length > 0 && ` (${pendingSales.length} waiting)`}.
+        </Alert>
+      )}
 
-        {/* Main Content Area */}
-        <Grid container size={{ xs: 12 }} spacing={{ xs: 1.5, md: 3 }}>
-          {/* Product Selection Card */}
-          <Grid item size={{ xs: 12, md: 6 }}>
-            <Card sx={{ height: '100%' }}>
-              <CardContent>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                  <Typography variant="h6">
-                    Product Selection
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Tooltip title="Focus barcode (Ctrl+F)">
-                      <Chip
-                        icon={<QrCodeScannerIcon />}
-                        label="Focus"
-                        size="small"
-                        onClick={() => barcodeRef.current?.focus()}
-                        variant="outlined"
-                      />
-                    </Tooltip>
-                    {!isOnline && (
-                      <Chip
-                        label="Cached"
-                        size="small"
-                        color="warning"
-                        variant="outlined"
-                      />
-                    )}
-                  </Box>
-                </Box>
-
-                <TextField
-                  inputRef={barcodeRef}
-                  label="Scan Barcode"
-                  value={barcodeInput}
-                  onChange={(e) => setBarcodeInput(e.target.value)}
-                  onKeyDown={handleBarcodeScan}
-                  fullWidth
-                  sx={{ mb: 2 }}
-                  disabled={!scannerActive}
-                  placeholder={scannerActive ? "Ready to scan... (Ctrl+F to focus)" : "Scanner disabled"}
-                  InputProps={{
-                    endAdornment: scannerActive && <QrCodeScannerIcon color="action" />
-                  }}
-                />
-
-                <Button
-                  variant="outlined"
-                  startIcon={<CameraIcon />}
-                  onClick={() => { setCameraScanMessage(""); setCameraScannerOpen(true); }}
-                  fullWidth
-                  sx={{ mb: 2, py: { xs: 1.25, md: 0.75 } }}
-                >
-                  Scan with camera
-                </Button>
-
-                <Autocomplete
-                  options={products}
-                  getOptionLabel={(p) => p.name}
-                  filterOptions={(options, { inputValue }) =>
-                    options.filter(p =>
-                      p.name.toLowerCase().includes(inputValue.toLowerCase()) ||
-                      p.barcode?.toString().includes(inputValue)
-                    )
-                  }
-                  inputValue={searchTerm}
-                  onInputChange={(_, val) => setSearchTerm(val)}
-                  value={null}
-                  onChange={(_, product) => {
-                    if (product) {
-                      handleAddProduct(product);
-                      setSearchTerm("");
-                    }
-                  }}
-                  clearOnBlur={false}
-                  blurOnSelect
-                  sx={{ mb: 2 }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Search & Add Product"
-                      InputProps={{
-                        ...params.InputProps,
-                        startAdornment: (
-                          <>
-                            <SearchIcon sx={{ mr: 0.5, color: 'text.secondary' }} />
-                            {params.InputProps.startAdornment}
-                          </>
-                        ),
-                      }}
-                    />
-                  )}
-                  renderOption={(props, product) => (
-                    <Box component="li" {...props} key={product.id}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                        <Box>
-                          <Typography variant="body2" fontWeight="medium">
-                            {product.name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {product.barcode}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ textAlign: 'right', ml: 2 }}>
-                          {product.is_bulk_product && (
-                            <Chip label="BULK" size="small" color="primary" sx={{ mb: 0.5, display: 'block' }} />
-                          )}
-                          <Typography variant="caption" fontWeight="bold" color="primary.main">
-                            {product.is_bulk_product
-                              ? `${formatCurrency(product.bulk_price)}/${product.bulk_quantity}`
-                              : formatCurrency(product.price)}
-                          </Typography>
-                          <Typography variant="caption" display="block" color={product.stock <= 5 ? 'error.main' : 'text.secondary'}>
-                            Stock: {product.stock}
-                          </Typography>
-                        </Box>
+      <Grid container spacing={2}>
+        {/* Products */}
+        <Grid size={{ xs: 12, md: 7, lg: 8 }}>
+          <Card>
+            <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+              <Autocomplete
+                options={products}
+                value={null}
+                inputValue={searchText}
+                onInputChange={(e, v, reason) => { if (reason === "input" || reason === "clear") setSearchText(v); }}
+                onChange={(e, p) => {
+                  if (!p) return;
+                  // Enter on typed text: treat it as a barcode
+                  const product = typeof p === "string" ? findByBarcode(p) : p;
+                  if (product) { if (addProduct(product)) notify(`Added ${product.name}`, "success"); }
+                  else notify(`No product with barcode or name "${p}"`, "error");
+                  setSearchText("");
+                }}
+                autoHighlight
+                getOptionLabel={(p) => p?.name || ""}
+                filterOptions={(options, { inputValue }) => {
+                  const t = inputValue.trim().toLowerCase();
+                  if (!t) return [];
+                  return options.filter((p) => p.name.toLowerCase().includes(t) || String(p.barcode || "").toLowerCase().includes(t)).slice(0, 30);
+                }}
+                blurOnSelect={!isDesktop}
+                clearOnBlur={false}
+                freeSolo
+                noOptionsText="No product found"
+                renderOption={(props, p) => {
+                  const { key, ...rest } = props;
+                  return (
+                    <Box component="li" key={p.id} {...rest} sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={600} noWrap>{p.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">{p.barcode}{packSize(p) ? ` · ctn ${packSize(p)} for ${naira(p.bulk_price)}` : ""}</Typography>
+                      </Box>
+                      <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+                        <Typography variant="body2" fontWeight={800} color="primary">{naira(p.price)}</Typography>
+                        <Typography variant="caption" color={p.stock <= 0 ? "error.main" : "text.secondary"}>{p.stock <= 0 ? "Out" : `${p.stock} left`}</Typography>
                       </Box>
                     </Box>
-                  )}
-                  noOptionsText="No products found"
-                />
-
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Quick Access ({products.length} products loaded)
-                </Typography>
-                <Grid container spacing={1} sx={{ mb: 3 }}>
-                  {quickProducts.map(product => (
-                    <Grid item size={{ xs: 6 }} key={product.id}>
-                      <Card
-                        variant="outlined"
-                        sx={{
-                          cursor: 'pointer',
-                          '&:hover': { bgcolor: 'action.hover' },
-                          textAlign: 'center',
-                          p: 1
-                        }}
-                        onClick={() => handleAddProduct(product)}
-                      >
-                        <Typography variant="body2" noWrap title={product.name}>
-                          {product.name}
-                        </Typography>
-                        <Typography variant="caption" color="textSecondary">
-                          {product.is_bulk_product ?
-                            `${formatCurrency(product.bulk_price)}/${product.bulk_quantity}` :
-                            formatCurrency(product.price)
-                          }
-                        </Typography>
-                        {product.is_bulk_product && (
-                          <Typography variant="caption" display="block" color="primary">
-                            Bulk
-                          </Typography>
-                        )}
-                        <Typography variant="caption" display="block" color="textSecondary">
-                          Stock: {product.stock}
-                        </Typography>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Shopping Cart Card */}
-          <Grid item size={{ xs: 12, md: 6 }}>
-            <Card sx={{ height: '100%' }}>
-              <CardContent>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                  <Typography variant="h6">
-                    Shopping Cart ({cart.length} items)
-                  </Typography>
-                  {cart.length > 0 && (
-                    <Tooltip title="Clear cart (Ctrl+Delete)">
-                      <IconButton size="small" onClick={() => setCart([])} color="error">
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </Box>
-                <TableContainer sx={{ maxHeight: 400, overflow: 'auto' }}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Product</TableCell>
-                        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Price</TableCell>
-                        <TableCell>Qty</TableCell>
-                        <TableCell>Total</TableCell>
-                        <TableCell>Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {cart.map(item => (
-                        <CartItemRow
-                          key={item.product.id}
-                          item={item}
-                          onQuantityChange={handleQuantityChange}
-                          onRemove={(productId) => setCart(prev => prev.filter(i => i.product.id !== productId))}
-                        />
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-                {cart.length === 0 && (
-                  <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <Typography color="text.secondary" variant="body2">
-                      No items in cart. Scan or select products to start.
-                    </Typography>
-                  </Box>
+                  );
+                }}
+                renderInput={(params) => (
+                  <TextField {...params} inputRef={searchRef} autoFocus={isDesktop} placeholder="Scan barcode or type a product name"
+                    onKeyDown={(e) => { if (e.key === "Enter" && findByBarcode(searchText)) { e.preventDefault(); e.stopPropagation(); onSearchEnter(); } }}
+                    InputProps={{
+                      ...params.InputProps,
+                      startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>,
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          {searchText && <IconButton size="small" onClick={() => setSearchText("")}><CloseIcon fontSize="small" /></IconButton>}
+                          <Tooltip title="Scan with camera">
+                            <IconButton color="primary" onClick={() => { setCameraMessage(""); setCameraOpen(true); }}><CameraIcon /></IconButton>
+                          </Tooltip>
+                        </InputAdornment>
+                      ),
+                    }} />
                 )}
+              />
 
-                {cart.length > 0 && (
-                  <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-                    <Typography variant="h6" textAlign="center" color="primary">
-                      Cart Total: {formatCurrency(totalAmount)}
-                    </Typography>
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-
-        {/* Payment Summary */}
-        <Grid item size={{ xs: 12, md: 4 }}>
-          <Card sx={{ position: 'sticky', top: 24 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Payment Summary
-              </Typography>
-
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="h4" color="primary" fontWeight="bold" textAlign="center">
-                  {formatCurrency(totalAmount)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" textAlign="center">
-                  Total Amount
-                </Typography>
-              </Box>
-
-              <Divider sx={{ my: 2 }} />
-
-              {/* Customer Selection Section */}
-              <Box sx={{ mb: 2 }}>
-                {selectedCustomer ? (
-                  <Card variant="outlined" sx={{ bgcolor: 'success.light', borderColor: 'success.main' }}>
-                    <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Box sx={{ flexGrow: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                            <PersonIcon fontSize="small" sx={{ color: 'white' }} />
-                            <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 'bold' }}>
-                              {selectedCustomer.name}
-                            </Typography>
-                          </Box>
-                          <Typography variant="caption" sx={{ color: 'white', display: 'block' }}>
-                            📞 {selectedCustomer.phone}
-                          </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                            <LoyaltyIcon fontSize="small" sx={{ color: 'white' }} />
-                            <Typography variant="caption" sx={{ color: 'white' }}>
-                              {selectedCustomer.loyalty_points} loyalty points
-                            </Typography>
-                          </Box>
-                        </Box>
-                        <IconButton
-                          size="small"
-                          onClick={handleRemoveCustomer}
-                          sx={{ color: 'white' }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Button
-                    variant="outlined"
-                    onClick={() => setCustomerLookupOpen(true)}
-                    fullWidth
-                    startIcon={<PersonAddIcon />}
-                    sx={{ py: 1.5 }}
-                  >
-                    Add Customer to Sale
-                  </Button>
-                )}
-              </Box>
-
-              <Typography variant="caption" color="textSecondary" display="block" gutterBottom>
-                Payment method
-              </Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0.75, mb: 2 }}>
-                {[['CASH', 'Cash'], ['TRANSFER', 'Transfer'], ['POS', 'POS'], ['SPLIT', 'Split']].map(([value, label]) => (
-                  <Button
-                    key={value}
-                    size="small"
-                    variant={paymentMethod === value ? 'contained' : 'outlined'}
-                    onClick={() => setPaymentMethod(value)}
-                    sx={{ minWidth: 0, px: 0.5, fontWeight: 700 }}
-                  >
-                    {label}
-                  </Button>
+              <Box sx={{ display: "flex", gap: 0.75, overflowX: "auto", py: 1.5, "&::-webkit-scrollbar": { display: "none" } }}>
+                <Chip icon={<StarIcon />} label="Top sellers" onClick={() => setBrowse("top")} color={browse === "top" ? "primary" : "default"}
+                  variant={browse === "top" ? "filled" : "outlined"} sx={{ fontWeight: 700, flexShrink: 0 }} />
+                {categories.map(([id, name]) => (
+                  <Chip key={id} label={name} onClick={() => setBrowse(String(id))} color={browse === String(id) ? "primary" : "default"}
+                    variant={browse === String(id) ? "filled" : "outlined"} sx={{ fontWeight: 600, flexShrink: 0 }} />
                 ))}
               </Box>
 
-              {(paymentMethod === 'TRANSFER' || paymentMethod === 'POS') && totalAmount > 0 && (
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  <Typography variant="body2">
-                    {paymentMethod === 'TRANSFER'
-                      ? <>Confirm the <strong>{formatCurrency(totalAmount)}</strong> transfer alert before completing.</>
-                      : <>Confirm the POS slip shows <strong>{formatCurrency(totalAmount)}</strong> approved.</>}
-                  </Typography>
-                </Alert>
-              )}
-
-              {paymentMethod === 'SPLIT' && (
-                <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
-                  <TextField
-                    label="Transfer part"
-                    type="number"
-                    size="small"
-                    value={transferPart}
-                    onChange={(e) => setTransferPart(e.target.value)}
-                    inputProps={{ min: 0, inputMode: 'decimal' }}
-                    sx={{ flex: 1 }}
-                  />
-                  <TextField
-                    label="POS part"
-                    type="number"
-                    size="small"
-                    value={cardPart}
-                    onChange={(e) => setCardPart(e.target.value)}
-                    inputProps={{ min: 0, inputMode: 'decimal' }}
-                    sx={{ flex: 1 }}
-                  />
-                </Box>
-              )}
-
-              {(paymentMethod === 'CASH' || (paymentMethod === 'SPLIT' && payment.cashDue > 0)) && (
-                <>
-                  {paymentMethod === 'SPLIT' && (
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      Cash to collect: <strong>{formatCurrency(payment.cashDue)}</strong>
-                    </Typography>
-                  )}
-                  <TextField
-                    label={paymentMethod === 'SPLIT' ? 'Cash received' : 'Amount Paid'}
-                    type="number"
-                    fullWidth
-                    value={paidAmount}
-                    onChange={(e) => setPaidAmount(e.target.value)}
-                    inputProps={{ min: payment.cashDue, inputMode: 'decimal' }}
-                    sx={{ mb: 2 }}
-                    size="small"
-                  />
-
-                  {paymentMethod === 'CASH' && totalAmount > 0 && (
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="caption" color="textSecondary" display="block" gutterBottom>
-                        Quick Amounts:
-                      </Typography>
-                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                        {suggestedAmounts.map(amount => (
-                          <Chip
-                            key={amount}
-                            label={formatCurrency(amount)}
-                            size="small"
-                            onClick={() => setPaidAmount(amount.toString())}
-                            variant={parseFloat(paidAmount) === amount ? "filled" : "outlined"}
-                            color="primary"
-                          />
-                        ))}
-                      </Box>
-                    </Box>
-                  )}
-                  {paymentMethod === 'SPLIT' && payment.cashDue > 0 && (
-                    <Chip
-                      label={`Exact: ${formatCurrency(payment.cashDue)}`}
-                      size="small"
-                      color="primary"
-                      variant={parseFloat(paidAmount) === payment.cashDue ? 'filled' : 'outlined'}
-                      onClick={() => setPaidAmount(payment.cashDue.toString())}
-                      sx={{ mb: 2 }}
-                    />
-                  )}
-                </>
-              )}
-
-              {payment.ok && payment.change > 0 && (
-                <Alert severity="success" sx={{ mb: 2 }}>
-                  <Typography variant="body2">
-                    Change: <strong>{formatCurrency(payment.change)}</strong>
-                  </Typography>
-                </Alert>
-              )}
-
-              {cart.length > 0 && payment.reason && (payment.short > 0 || paymentMethod === 'SPLIT') && (paidAmount !== '' || transferPart !== '' || cardPart !== '') && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                  <Typography variant="body2">{payment.reason}</Typography>
-                </Alert>
-              )}
-
-              <Tooltip title={cart.length === 0 ? "Add products to cart" : payment.reason || (isOnline ? "Complete sale (Ctrl+Enter)" : "Complete sale offline")}>
-                <span>
-                  <Button
-                    variant="contained"
-                    color={isOnline ? "primary" : "warning"}
-                    onClick={handleCompleteSale}
-                    disabled={cart.length === 0 || !payment.ok || isPrinting}
-                    fullWidth
-                    size="large"
-                    startIcon={isPrinting ? <PrintIcon /> : isOnline ? <ReceiptIcon /> : <SaveIcon />}
-                    sx={{ py: 1.5 }}
-                  >
-                    {isPrinting ? "Printing..." : isOnline ? `Complete Sale` : `Complete Sale Offline`}
-                  </Button>
-                </span>
-              </Tooltip>
-
-              {cart.length > 0 && (
-                <Button
-                  variant="outlined"
-                  color="error"
-                  onClick={() => setCart([])}
-                  fullWidth
-                  sx={{ mt: 1 }}
-                  size="small"
-                >
-                  Clear Cart (Ctrl+Delete)
-                </Button>
+              {products.length === 0 ? (
+                <Box sx={{ textAlign: "center", py: 4 }}><CircularProgress size={28} /></Box>
+              ) : (
+                <Grid container spacing={1} sx={{ maxHeight: { md: "calc(100vh - 330px)" }, overflowY: { md: "auto" } }}>
+                  {tiles.map(tile)}
+                </Grid>
               )}
             </CardContent>
           </Card>
         </Grid>
+
+        {/* Cart + payment on laptops */}
+        {isDesktop && (
+          <Grid size={{ md: 5, lg: 4 }}>
+            <Card sx={{ position: "sticky", top: 16 }}>
+              <CardContent sx={{ p: 2 }}>
+                {cartHeader}
+                <Box sx={{ maxHeight: "38vh", overflowY: "auto", mx: -0.5, px: 0.5 }}>{cartLines}</Box>
+                {totalBlock}
+                <Divider sx={{ mb: 1.5 }} />
+                {paymentPanel}
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
       </Grid>
 
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={handleCloseSnackbar}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <MuiAlert
-          elevation={6}
-          variant="filled"
-          onClose={handleCloseSnackbar}
-          severity={snackbar.severity}
-        >
-          {snackbar.message}
-        </MuiAlert>
-      </Snackbar>
+      {/* Phones: sticky pay bar */}
+      {!isDesktop && cart.length > 0 && (
+        <Paper elevation={8} sx={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: theme.zIndex.appBar, p: 1.25, pb: "calc(10px + env(safe-area-inset-bottom))", borderRadius: "16px 16px 0 0" }}>
+          <Button fullWidth size="large" variant="contained" onClick={() => setCheckoutOpen(true)}
+            sx={{ py: 1.25, background: BRAND_GRADIENT, justifyContent: "space-between", fontWeight: 800, fontSize: 16 }}>
+            <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+              <Badge badgeContent={itemCount} color="error" max={999}><CartIcon /></Badge>
+              <span style={{ marginLeft: 8 }}>{naira(totalAmount)}</span>
+            </Box>
+            <span>Pay →</span>
+          </Button>
+        </Paper>
+      )}
 
-      {/* Hidden receipt for printing */}
-      <div style={{ display: "none" }}>
-        <Receipt ref={receiptRef} sale={lastSale} store={store} />
-      </div>
+      <Dialog open={!isDesktop && checkoutOpen} onClose={() => !saving && setCheckoutOpen(false)} fullScreen>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.5, background: BRAND_GRADIENT, color: "#fff" }}>
+          <IconButton color="inherit" onClick={() => setCheckoutOpen(false)} disabled={saving}><CloseIcon /></IconButton>
+          <Typography fontWeight={800} sx={{ flex: 1 }}>Checkout</Typography>
+          <Typography fontWeight={800}>{naira(totalAmount)}</Typography>
+        </Box>
+        <Box sx={{ p: 1.5, overflowY: "auto", flex: 1 }}>
+          {cartHeader}
+          {cartLines}
+          {totalBlock}
+          <Divider sx={{ mb: 1.5 }} />
+          {paymentPanel}
+          <Button fullWidth sx={{ mt: 1 }} onClick={() => setCheckoutOpen(false)} startIcon={<AddIcon />}>Add more products</Button>
+        </Box>
+      </Dialog>
 
-      <ReceiptDialog
-        open={receiptDialogOpen}
-        onClose={() => setReceiptDialogOpen(false)}
-        sale={lastSale}
-        store={store}
-      />
+      {/* Tools menu */}
+      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
+        <MenuItem onClick={() => { setMenuAnchor(null); loadProducts(); }}><ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>Refresh products</MenuItem>
+        {pendingSales.length > 0 && (
+          <MenuItem onClick={() => { setMenuAnchor(null); manualSync(); }} disabled={!isOnline}>
+            <ListItemIcon><SyncIcon fontSize="small" /></ListItemIcon>Sync {pendingSales.length} offline sale(s)
+          </MenuItem>
+        )}
+        <MenuItem onClick={() => { setMenuAnchor(null); clearCart(); }} disabled={!cart.length}><ListItemIcon><ClearCartIcon fontSize="small" /></ListItemIcon>Clear cart</MenuItem>
+        {isDesktop && <MenuItem onClick={() => { setMenuAnchor(null); setShortcutsOpen(true); }}><ListItemIcon><KeyboardIcon fontSize="small" /></ListItemIcon>Keyboard shortcuts</MenuItem>}
+        <Divider />
+        <MenuItem onClick={() => {
+          setMenuAnchor(null);
+          if (!isOnline) { notify("Saved products are needed while offline", "warning"); return; }
+          if (window.confirm("Reload all products from the server? Use this only if prices or stock look wrong.")) {
+            clearCachedProducts();
+            loadProducts();
+          }
+        }}><ListItemIcon><ClearCacheIcon fontSize="small" /></ListItemIcon>Reload saved products</MenuItem>
+      </Menu>
 
-      {/* Keyboard Shortcuts Dialog */}
-      <ShortcutsDialog />
-
+      {/* Quantity */}
       <Dialog open={Boolean(quantityEdit)} onClose={() => setQuantityEdit(null)} maxWidth="xs" fullWidth>
         {quantityEdit && (
           <>
             <DialogTitle>{quantityEdit.product.name}</DialogTitle>
             <DialogContent>
-              <Box
-                component="form"
-                onSubmit={(e) => { e.preventDefault(); saveQuantityEdit(); }}
-                sx={{ display: 'flex', gap: 2, pt: 1 }}
-              >
+              <Box component="form" onSubmit={(e) => { e.preventDefault(); saveQuantityEdit(); }} sx={{ display: "flex", gap: 2, pt: 1 }}>
                 {packSize(quantityEdit.product) && (
-                  <TextField
-                    label="Packs"
-                    type="number"
-                    autoFocus
-                    fullWidth
-                    value={quantityEdit.packs}
-                    onChange={(e) => setQuantityEdit(prev => ({ ...prev, packs: e.target.value }))}
-                    helperText={`${quantityEdit.product.bulk_quantity} ${quantityEdit.product.unit_of_measure || 'units'} each`}
-                    slotProps={{ htmlInput: { min: 0, inputMode: 'numeric' } }}
-                  />
+                  <TextField label="Cartons" type="number" autoFocus fullWidth value={quantityEdit.packs}
+                    onChange={(e) => setQuantityEdit((prev) => ({ ...prev, packs: e.target.value }))}
+                    helperText={`${quantityEdit.product.bulk_quantity} ${unitWord(quantityEdit.product)} each`}
+                    slotProps={{ htmlInput: { min: 0, inputMode: "numeric" } }} />
                 )}
-                <TextField
-                  label={packSize(quantityEdit.product) ? 'Extra single items' : 'Quantity'}
-                  type="number"
-                  autoFocus={!packSize(quantityEdit.product)}
-                  fullWidth
-                  value={quantityEdit.singles}
-                  onChange={(e) => setQuantityEdit(prev => ({ ...prev, singles: e.target.value }))}
-                  slotProps={{ htmlInput: { min: 0, inputMode: 'numeric' } }}
-                />
+                <TextField label={packSize(quantityEdit.product) ? "Extra single items" : "Quantity"} type="number"
+                  autoFocus={!packSize(quantityEdit.product)} fullWidth value={quantityEdit.singles}
+                  onChange={(e) => setQuantityEdit((prev) => ({ ...prev, singles: e.target.value }))}
+                  slotProps={{ htmlInput: { min: 0, inputMode: "numeric" } }} />
                 <button type="submit" hidden />
               </Box>
               <Typography variant="body2" sx={{ mt: 2 }}>
-                Total: <strong>{quantityFromEdit(quantityEdit)}</strong> {quantityEdit.product.unit_of_measure || 'units'}
-                {' · '}{formatCurrency(calculateItemPrice(quantityEdit.product, quantityFromEdit(quantityEdit)))}
+                Total: <b>{quantityFromEdit(quantityEdit)}</b> {unitWord(quantityEdit.product)} · {formatCurrency(calculateItemPrice(quantityEdit.product, quantityFromEdit(quantityEdit)))}
               </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {quantityEdit.product.stock} in stock
-              </Typography>
+              <Typography variant="caption" color="text.secondary">{quantityEdit.product.stock} in stock</Typography>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setQuantityEdit(null)}>Cancel</Button>
@@ -1571,19 +827,37 @@ const SalesPage = () => {
         )}
       </Dialog>
 
-      {/* Customer Management Modals */}
-      <CustomerLookupModal
-        open={customerLookupOpen}
-        onClose={() => setCustomerLookupOpen(false)}
-        onSelectCustomer={handleSelectCustomer}
-        onAddNewCustomer={handleAddNewCustomer}
-      />
+      {/* Shortcuts */}
+      <Dialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Keyboard shortcuts</DialogTitle>
+        <DialogContent>
+          {[["F2 or Ctrl + K", "Go to the search / scan box"], ["Enter (after a scan)", "Add the scanned product"], ["Ctrl + Enter", "Complete the sale"], ["F1", "Show these shortcuts"]].map(([k, v]) => (
+            <Box key={k} sx={{ display: "flex", justifyContent: "space-between", py: 0.75, borderBottom: 1, borderColor: "divider" }}>
+              <Typography variant="body2" fontWeight={700}>{k}</Typography>
+              <Typography variant="body2" color="text.secondary">{v}</Typography>
+            </Box>
+          ))}
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
+            Clearing the cart always asks first, so no key can empty it by accident.
+          </Typography>
+        </DialogContent>
+        <DialogActions><Button onClick={() => setShortcutsOpen(false)}>Close</Button></DialogActions>
+      </Dialog>
 
-      <CustomerQuickAddModal
-        open={customerQuickAddOpen}
-        onClose={() => setCustomerQuickAddOpen(false)}
-        onCustomerCreated={handleCustomerCreated}
-      />
+      <BarcodeScannerDialog open={cameraOpen} onClose={() => setCameraOpen(false)} onDetected={onCameraScan} lastResult={cameraMessage} />
+      <CustomerLookupModal open={customerLookupOpen} onClose={() => setCustomerLookupOpen(false)}
+        onSelectCustomer={(c) => { setSelectedCustomer(c); notify(`${c.name} added to the sale`, "success"); }}
+        onAddNewCustomer={() => { setCustomerLookupOpen(false); setCustomerAddOpen(true); }} />
+      <CustomerQuickAddModal open={customerAddOpen} onClose={() => setCustomerAddOpen(false)}
+        onCustomerCreated={(c) => { setSelectedCustomer(c); setCustomerAddOpen(false); notify(`${c.name} created and added`, "success"); }} />
+
+      <div style={{ display: "none" }}><Receipt ref={receiptRef} sale={lastSale} store={store} /></div>
+      <ReceiptDialog open={receiptOpen} onClose={() => setReceiptOpen(false)} sale={lastSale} store={store} />
+
+      <Snackbar open={snackbar.open} autoHideDuration={2500} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: isDesktop ? "bottom" : "top", horizontal: "center" }}>
+        <Alert variant="filled" severity={snackbar.severity} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>{snackbar.message}</Alert>
+      </Snackbar>
     </Box>
   );
 };

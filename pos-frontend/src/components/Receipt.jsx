@@ -1,5 +1,5 @@
 import React, { forwardRef } from "react";
-import { paymentLines } from "../utils/receiptText";
+import { lineQuantity, lineTotal, paymentLines } from "../utils/receiptText";
 
 const Receipt = forwardRef(({ sale, store }, ref) => {
   if (!sale) return null;
@@ -97,9 +97,7 @@ const Receipt = forwardRef(({ sale, store }, ref) => {
         
         {items.map((item, i) => {
           const productName = item.product?.name || 'Unknown Product';
-          const quantity = parseInt(item.quantity) || 0;
-          const price = parseFloat(item.product?.price || item.price_at_sale || 0);
-          const itemTotal = quantity * price;
+          const itemTotal = lineTotal(item);
           
           return (
             <div key={i} style={{ 
@@ -109,7 +107,7 @@ const Receipt = forwardRef(({ sale, store }, ref) => {
               fontSize: '9px'
             }}>
               <span style={{ flex: 2 }}>
-                {quantity}x {productName.length > 20 
+                {lineQuantity(item)}x {productName.length > 20 
                   ? productName.substring(0, 20) + '...' 
                   : productName}
               </span>

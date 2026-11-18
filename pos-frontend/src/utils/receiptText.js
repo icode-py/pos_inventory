@@ -16,9 +16,7 @@ export function buildReceiptText(sale, store) {
   lines.push('--------------------------');
 
   items.forEach((item) => {
-    const qty = parseInt(item.quantity) || 0;
-    const price = parseFloat(item.product?.price || item.price_at_sale || 0);
-    lines.push(`${qty} x ${item.product?.name || 'Item'}  ${naira(qty * price)}`);
+    lines.push(`${lineQuantity(item)} x ${item.product?.name || 'Item'}  ${naira(lineTotal(item))}`);
   });
 
   lines.push('--------------------------');
@@ -34,6 +32,25 @@ export function buildReceiptText(sale, store) {
   lines.push('--------------------------');
   lines.push(store?.receipt_footer || 'Thank you for your business!');
   return lines.join('\n');
+}
+
+/** What a receipt line actually cost: the charged amount, not quantity x single price,
+ * so carton prices and discounts show correctly. */
+export function lineTotal(item) {
+  const qty = parseInt(item.quantity) || 0;
+  if (item.line_total != null) return Number(item.line_total);
+  if (item.price_at_sale != null) return Math.round(qty * parseFloat(item.price_at_sale) * 100) / 100;
+  return qty * (parseFloat(item.product?.price) || 0);
+}
+
+/** "2 ctn + 3" for carton products, otherwise the plain quantity. */
+export function lineQuantity(item) {
+  const qty = parseInt(item.quantity) || 0;
+  const pack = item.product?.is_bulk_product && Number(item.product.bulk_quantity) > 1 ? Number(item.product.bulk_quantity) : 0;
+  if (!pack || qty < pack) return String(qty);
+  const cartons = Math.floor(qty / pack);
+  const rest = qty % pack;
+  return `${qty} (${cartons} ctn${rest ? ` + ${rest}` : ''})`;
 }
 
 /** Nigerian numbers: 0803... -> 234803...; numbers already in international form are kept. */

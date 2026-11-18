@@ -445,9 +445,18 @@ class AuditedProductViewSet(AuditMixin, viewsets.ModelViewSet):
     pagination_class = None  # POS and products page need full list for client-side search
 
     def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
+        if self.action in ('list', 'retrieve', 'top_sellers'):
             return [IsAuthenticated()]
         return [IsAuthenticated(), IsManagerOrAdmin()]
+
+    @action(detail=False, methods=['get'], url_path='top-sellers')
+    def top_sellers(self, request):
+        """Ids of the store's best sellers (units, last 30 days) for the till's quick picks."""
+        since = timezone.now() - timedelta(days=30)
+        rows = (SaleItem.objects.filter(transaction__store=current_store(request), transaction__created_at__gte=since,
+                                        product__is_archived=False)
+                .values('product_id').annotate(units=Sum('quantity')).order_by('-units')[:12])
+        return Response([r['product_id'] for r in rows])
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related('category')
@@ -520,7 +529,7 @@ class RefusedSaleViewSet(AuditMixin, viewsets.ReadOnlyModelViewSet):
         if not refused:
             return Response({'detail': 'This sale has already been reviewed.'}, status=status.HTTP_404_NOT_FOUND)
         serializer = SaleTransactionSerializer(
-            data=refused.payload, context={'request': request, 'allow_short_stock': True}
+            data=refused.payload, context={'request': request, 'allow_short_stock': True, 'trust_prices': True}
         )
         serializer.is_valid(raise_exception=True)
         sale = serializer.save(store=refused.store, cashier=refused.cashier)

@@ -49,6 +49,26 @@ class MoneyField(serializers.DecimalField):
             value.quantize(decimal.Decimal(1).scaleb(-self.decimal_places), rounding=decimal.ROUND_HALF_UP))
 
 
+def expected_line_total(product, quantity, at=None):
+    """What a line should cost: carton pricing, then the best active bulk discount.
+
+    Mirrors the till's calculateItemPrice so honest sales always match.
+    """
+    at = at or timezone.now()
+    price = Decimal(product.price)
+    if product.is_bulk_product and product.bulk_quantity > 1 and product.bulk_price:
+        packs, rest = divmod(quantity, product.bulk_quantity)
+        total = packs * Decimal(product.bulk_price) + rest * price
+    else:
+        total = price * quantity
+    best = Decimal(0)
+    for discount in product.bulk_discounts.all():
+        if not discount.is_active or discount.start_date > at or (discount.end_date and discount.end_date < at):
+            continue
+        best = max(best, Decimal(discount.calculate_discount(quantity, price) or 0))
+    return max(Decimal(0), total - best)
+
+
 class UniqueInStoreMixin:
     """Barcodes, phones and category names only have to be unique within a store."""
 
@@ -342,8 +362,38 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'items': 'Sale must contain at least one item'
             })
+        if not self.context.get('trust_prices'):
+            self.check_prices(data, items_data)
 
         return data
+
+    @staticmethod
+    def check_prices(data, items_data):
+        """Refuse lines charged below the listed price, and a total that doesn't match its lines.
+
+        Charging more than the list price is allowed. A manager approving a held sale
+        skips this (trust_prices), since they have seen the reason.
+        """
+        at = min(data.get('sold_at') or timezone.now(), timezone.now())
+        problems, lines_total, slack = [], Decimal(0), Decimal(0)
+        for item in items_data:
+            product, quantity = item['product'], item['quantity']
+            charged = Decimal(item['price_at_sale']) * quantity
+            # The till sends an average unit price rounded to kobo, so allow for that rounding
+            tolerance = max(Decimal('1'), Decimal('0.01') * quantity)
+            expected = expected_line_total(product, quantity, at)
+            if charged + tolerance < expected:
+                problems.append(f'{product.name}: charged ₦{charged:,.2f}, listed price is ₦{expected:,.2f}')
+            lines_total += charged
+            slack += tolerance
+        if problems:
+            raise serializers.ValidationError({
+                'items': 'Prices are below the listed price. Refresh products and try again. ' + '; '.join(problems)
+            })
+        if abs(Decimal(data['total_amount']) - lines_total) > slack:
+            raise serializers.ValidationError({
+                'total_amount': f'The sale total ₦{data["total_amount"]:,.2f} does not match its items (₦{lines_total:,.2f})'
+            })
 
     @staticmethod
     def split_payment(data):

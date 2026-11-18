@@ -191,7 +191,8 @@ class WriteIsolationTests(TenantTestCase):
 
     def test_packs_plus_singles_average_price_is_rounded_not_refused(self):
         # 2 packs of 20 at 900 + 1 sachet at 50 = 1850 for 41, average 45.1219...
-        Product.objects.filter(pk=self.a['product'].pk).update(stock=100)
+        Product.objects.filter(pk=self.a['product'].pk).update(stock=100, price=50, cost_price=30, is_bulk_product=True,
+                                                               bulk_quantity=20, bulk_price=900)
         self.client.force_authenticate(self.a['cashier'])
         payload = {'total_amount': 1850, 'paid_amount': 2000, 'change_given': 150,
                    'items': [{'product_id': self.a['product'].pk, 'quantity': 41, 'price_at_sale': 1850 / 41}]}
@@ -1047,3 +1048,61 @@ class InventoryManagementTests(TenantTestCase):
         Product.objects.filter(pk=self.a['product'].pk).update(is_archived=True)
         totals = self.client.get('/api/analytics/stock/').data['totals']
         self.assertEqual(totals['products'], 0)
+
+
+class PriceCheckTests(TenantTestCase):
+    """The server refuses sales charged below the listed price (cartons and discounts included)."""
+
+    def setUp(self):
+        super().setUp()
+        BulkDiscount.objects.filter(store=self.a['store']).delete()
+        Product.objects.filter(pk=self.a['product'].pk).update(stock=500, is_bulk_product=True, bulk_quantity=24, bulk_price=11400)
+        self.client.force_authenticate(self.a['cashier'])
+
+    def sell(self, quantity, unit_price, total=None, **extra):
+        total = total if total is not None else round(quantity * unit_price, 2)
+        return self.client.post('/api/sales/', {
+            'total_amount': total, 'paid_amount': total, 'change_given': 0,
+            'items': [{'product_id': self.a['product'].pk, 'quantity': quantity, 'price_at_sale': unit_price}], **extra,
+        }, format='json')
+
+    def test_honest_carton_sale_goes_through(self):
+        # 2 cartons at 11,400 = 22,800 for 48 (475 each)
+        self.assertEqual(self.sell(48, 475).status_code, 201)
+
+    def test_cut_price_is_refused_online(self):
+        response = self.sell(2, 1)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('below the listed price', str(response.data))
+        self.assertEqual(Product.objects.get(pk=self.a['product'].pk).stock, 500)
+
+    def test_charging_more_is_allowed(self):
+        self.assertEqual(self.sell(1, 600).status_code, 201)
+
+    def test_total_must_match_the_items(self):
+        response = self.sell(1, 500, total=100)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('does not match', str(response.data))
+
+    def test_active_discount_counts(self):
+        BulkDiscount.objects.create(store=self.a['store'], name='Promo', discount_type='percentage', minimum_quantity=2,
+                                    discount_value=10, product=self.a['product'], start_date=timezone.now() - timedelta(days=1))
+        Product.objects.filter(pk=self.a['product'].pk).update(is_bulk_product=False, bulk_quantity=1, bulk_price=None)
+        self.assertEqual(self.sell(2, 450).status_code, 201)   # 1,000 less 10%
+        self.assertEqual(self.sell(2, 400).status_code, 400)
+
+    def test_offline_cut_price_is_held_then_manager_can_approve(self):
+        response = self.sell(2, 1, client_ref='till-cheap', sold_at=timezone.now().isoformat())
+        self.assertEqual(response.status_code, 202)
+        held = RefusedSale.objects.get(client_ref='till-cheap')
+        self.assertIn('below the listed price', held.reason)
+        self.client.force_authenticate(self.a['admin'])
+        self.assertEqual(self.client.post(f'/api/refused-sales/{held.pk}/approve/').status_code, 200)
+        self.assertTrue(SaleTransaction.objects.filter(store=self.a['store'], total_amount=2).exists())
+
+    def test_top_sellers_for_quick_picks(self):
+        self.sell(48, 475)
+        ids = self.client.get('/api/products/top-sellers/').data
+        self.assertEqual(ids[0], self.a['product'].pk)
+        self.client.force_authenticate(self.b['cashier'])
+        self.assertNotIn(self.a['product'].pk, self.client.get('/api/products/top-sellers/').data)
