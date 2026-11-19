@@ -36,7 +36,8 @@ const errorText = (err) => {
 
 export default function SettingsPage() {
   const theme = useTheme();
-  const { user } = useContext(AuthContext);
+  const { user, replaceTokens } = useContext(AuthContext);
+  const minPassword = user?.role === "cashier" ? 6 : 8;
   const { store, setStore, refreshStore } = useStore();
   const [params] = useSearchParams();
   // Cashiers only get their own account; managers and the owner get the store settings too
@@ -75,9 +76,10 @@ export default function SettingsPage() {
   const changePassword = async () => {
     setPwSaving(true);
     try {
-      await axiosInstance.post("/me/password/", { current_password: pw.current, new_password: pw.next });
+      const res = await axiosInstance.post("/me/password/", { current_password: pw.current, new_password: pw.next });
+      if (res.data?.tokens) replaceTokens(res.data.tokens);
       setPw({ current: "", next: "", confirm: "" });
-      notify("Password changed. Use it next time you log in.");
+      notify("Password changed. Any other device logged in as you has been logged out.");
     } catch (err) {
       notify(errorText(err), "error");
     } finally {
@@ -193,11 +195,11 @@ export default function SettingsPage() {
           <Typography variant="subtitle2" fontWeight={700} gutterBottom>Change my password</Typography>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 360 }}>
             <TextField type="password" label="Current password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" />
-            <TextField type="password" label="New password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} helperText="At least 6 characters" autoComplete="new-password" />
+            <TextField type="password" label="New password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} helperText={`At least ${minPassword} characters, not a common password`} autoComplete="new-password" />
             <TextField type="password" label="Confirm new password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
               error={pw.confirm !== "" && pw.confirm !== pw.next} helperText={pw.confirm !== "" && pw.confirm !== pw.next ? "Passwords don't match" : " "} autoComplete="new-password" />
             <Button variant="contained" startIcon={pwSaving ? <CircularProgress size={16} color="inherit" /> : <LockIcon />} onClick={changePassword}
-              disabled={pwSaving || !pw.current || pw.next.length < 6 || pw.next !== pw.confirm} sx={{ alignSelf: "flex-start" }}>
+              disabled={pwSaving || !pw.current || pw.next.length < minPassword || pw.next !== pw.confirm} sx={{ alignSelf: "flex-start" }}>
               Change password
             </Button>
           </Box>

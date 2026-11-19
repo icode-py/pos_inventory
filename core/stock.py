@@ -18,6 +18,7 @@ from rest_framework.throttling import UserRateThrottle
 
 from .models import AuditLog, Product, Restock, SaleItem, StockAdjustment
 from .permissions import IsManagerOrAdmin, current_store
+from .security import write_text_cell
 
 REASONS = dict(StockAdjustment.REASONS)
 # Reasons that mean the shop lost the goods (returns to a supplier are refunded/replaced)
@@ -228,7 +229,7 @@ def count_sheet(request):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = 'Stock count'
-    ws['A1'] = f'{store.name} — stock count'
+    write_text_cell(ws, 1, 1, f'{store.name} — stock count')
     ws['A1'].font = Font(bold=True, size=14)
     ws['A2'] = f'Printed {timezone.localtime().strftime("%d %b %Y %H:%M")}. Write what is on the shelf, then enter it in Products → Stock count.'
     headers = ['Category', 'Product', 'Barcode', 'Pack size', 'System stock', 'Counted', 'Difference']
@@ -243,7 +244,7 @@ def count_sheet(request):
         values = [p.category.name if p.category else 'Uncategorized', p.name, p.barcode,
                   p.bulk_quantity if p.is_bulk_product and p.bulk_quantity > 1 else '', p.stock, None, None]
         for col, v in enumerate(values, start=1):
-            cell = ws.cell(row=i, column=col, value=v)
+            cell = write_text_cell(ws, i, col, v)   # a product named "=..." stays text
             cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
         ws.cell(row=i, column=7, value=f'=IF(F{i}="","",F{i}-E{i})')
     for col, width in zip('ABCDEFG', (20, 36, 18, 10, 13, 12, 12)):

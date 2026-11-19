@@ -20,6 +20,7 @@ from rest_framework.throttling import UserRateThrottle
 from .models import SaleItem, SaleTransaction
 from .permissions import IsManagerOrAdmin, current_store, plan_has_feature
 from .stock import stock_loss
+from .security import safe_row
 
 MONEY = DecimalField(max_digits=18, decimal_places=2)
 LINE_REVENUE = ExpressionWrapper(F('quantity') * F('price_at_sale'), output_field=MONEY)
@@ -302,11 +303,11 @@ def analytics_items_csv(request):
             'transaction__payment_method', 'product__name',
             'product__category__name', 'quantity', 'price_at_sale').iterator():
         at = timezone.localtime(r['transaction__created_at'])
-        writer.writerow([r['transaction_id'], at.date().isoformat(), at.strftime('%H:%M'),
-                         r['transaction__cashier__username'],
-                         PAYMENT_LABELS.get(r['transaction__payment_method'], 'Not recorded'), r['product__name'],
-                         r['product__category__name'] or '', r['quantity'], r['price_at_sale'],
-                         round(r['quantity'] * r['price_at_sale'], 2)])
+        writer.writerow(safe_row([r['transaction_id'], at.date().isoformat(), at.strftime('%H:%M'),
+                                  r['transaction__cashier__username'],
+                                  PAYMENT_LABELS.get(r['transaction__payment_method'], 'Not recorded'), r['product__name'],
+                                  r['product__category__name'] or '', r['quantity'], r['price_at_sale'],
+                                  round(r['quantity'] * r['price_at_sale'], 2)]))
     return response
 
 

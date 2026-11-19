@@ -97,8 +97,9 @@ class ListIsolationTests(TenantTestCase):
         reprs = [r['object_repr'] for r in self.client.get('/api/audit-log/').data['results']]
         self.assertEqual(reprs, ['alpha log'])
 
-    def test_loyalty_settings(self):
-        self.assertEqual(len(self.client.get('/api/loyalty-settings/').data), 1)
+    def test_old_loyalty_settings_endpoint_is_gone(self):
+        # Loyalty rules live on the store now; the old endpoint was removed
+        self.assertEqual(self.client.get('/api/loyalty-settings/').status_code, 404)
 
     def test_customer_transactions_of_other_store_are_hidden(self):
         url = f"/api/customer-transactions/?customer_id={self.b['customer'].pk}"
@@ -114,11 +115,14 @@ class ObjectIsolationTests(TenantTestCase):
         ]
         for route, key in cases:
             url = f'/api/{route}/{self.b[key].pk}/'
-            for method in ('get', 'delete'):
-                with self.subTest(url=url, method=method):
-                    self.assertEqual(getattr(self.client, method)(url).status_code, 404)
+            # Sales can't be changed or deleted at all (405), in any store
+            refused = 405 if route == 'sales' else 404
+            with self.subTest(url=url, method='get'):
+                self.assertEqual(self.client.get(url).status_code, 404)
+            with self.subTest(url=url, method='delete'):
+                self.assertEqual(self.client.delete(url).status_code, refused)
             with self.subTest(url=url, method='patch'):
-                self.assertEqual(self.client.patch(url, {'name': 'hacked'}, format='json').status_code, 404)
+                self.assertEqual(self.client.patch(url, {'name': 'hacked'}, format='json').status_code, refused)
         self.b['product'].refresh_from_db()
         self.assertEqual(self.b['product'].name, 'bravo Fanta')
 
@@ -244,7 +248,7 @@ class WriteIsolationTests(TenantTestCase):
 
 
 class OfflineSaleTests(TenantTestCase):
-    SOLD_AT = '2026-10-25T09:30:00Z'
+    SOLD_AT = (timezone.now() - timedelta(days=2)).strftime('%Y-%m-%dT%H:%M:00Z')
 
     def sale(self, product, ref='till-1', quantity=1, **extra):
         total = str(500 * quantity)
@@ -1219,8 +1223,8 @@ class StaffRuleTests(TenantTestCase):
         url = '/api/me/password/'
         self.assertEqual(self.client.post(url, {'current_password': 'wrong', 'new_password': 'newpass1'}, format='json').status_code, 400)
         self.assertEqual(self.client.post(url, {'current_password': 'pw12345', 'new_password': '123'}, format='json').status_code, 400)
-        self.assertEqual(self.client.post(url, {'current_password': 'pw12345', 'new_password': 'newpass1'}, format='json').status_code, 200)
-        self.assertTrue(Staff.objects.get(pk=self.a['cashier'].pk).check_password('newpass1'))
+        self.assertEqual(self.client.post(url, {'current_password': 'pw12345', 'new_password': 'Till-Okafor-58'}, format='json').status_code, 200)
+        self.assertTrue(Staff.objects.get(pk=self.a['cashier'].pk).check_password('Till-Okafor-58'))
 
 
 class AdminPagesTests(TenantTestCase):
@@ -1262,3 +1266,222 @@ class AdminPagesTests(TenantTestCase):
         # the fixture product has 5 in stock: low at 10, not low at 3
         self.assertEqual(self.client.get('/api/low-stock-alerts/').data['count'], 0)
         self.assertEqual(self.client.get('/api/analytics/stock/').data['settings']['low_stock_threshold'], 3)
+
+
+class SecurityTests(TenantTestCase):
+    """The fixes from the November 2026 security review."""
+
+    def tokens(self, username, password='pw12345'):
+        response = APIClient().post('/api/token/', {'username': username, 'password': password}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.data
+
+    def bearer(self, access):
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        return client
+
+    # ── Sales can't be deleted or edited ──
+    def test_cashier_cannot_delete_or_edit_a_sale(self):
+        self.client.force_authenticate(self.a['cashier'])
+        url = f"/api/sales/{self.a['sale'].pk}/"
+        self.assertEqual(self.client.delete(url).status_code, 405)
+        self.assertEqual(self.client.patch(url, {'total_amount': 1}, format='json').status_code, 405)
+        self.assertEqual(self.client.put(url, {'total_amount': 1}, format='json').status_code, 405)
+        self.assertTrue(SaleTransaction.objects.filter(pk=self.a['sale'].pk).exists())
+
+    def test_owner_cannot_delete_a_sale_through_the_api_either(self):
+        self.assertEqual(self.client.delete(f"/api/sales/{self.a['sale'].pk}/").status_code, 405)
+
+    def test_cashier_only_reads_own_sales(self):
+        other = Staff.objects.create_user('alpha_c2', password='pw12345', store=self.a['store'], is_cashier=True)
+        self.client.force_authenticate(other)
+        self.assertEqual(self.client.get(f"/api/sales/{self.a['sale'].pk}/").status_code, 404)
+        report = self.client.get(f"/api/sales-report/?cashier_id={self.a['cashier'].pk}").data
+        self.assertEqual(report['sales'], [])
+
+    # ── Sessions end when the password changes ──
+    def test_password_reset_ends_existing_sessions(self):
+        cashier = self.a['cashier']
+        old = self.tokens(cashier.username)
+        Staff.objects.filter(pk=cashier.pk).update(
+            tokens_valid_after=timezone.now() + timedelta(seconds=2))  # i.e. "changed after this login"
+        self.assertEqual(self.bearer(old['access']).get('/api/products/').status_code, 401)
+        self.assertEqual(APIClient().post('/api/token/refresh/', {'refresh': old['refresh']}, format='json').status_code, 401)
+
+    def test_set_password_stamps_the_cutoff(self):
+        cashier = Staff.objects.get(pk=self.a['cashier'].pk)
+        self.assertIsNone(cashier.tokens_valid_after)
+        response = self.client.post(f'/api/staff/{cashier.pk}/reset-password/', {'new_password': 'Fresh-Till-2026'}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNotNone(Staff.objects.get(pk=cashier.pk).tokens_valid_after)
+
+    def test_changing_own_password_gives_this_device_new_tokens(self):
+        self.client.force_authenticate(self.a['cashier'])
+        response = self.client.post('/api/me/password/', {'current_password': 'pw12345', 'new_password': 'Till-Okafor-58'}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.bearer(response.data['tokens']['access']).get('/api/products/').status_code, 200)
+
+    def test_refresh_still_works_normally(self):
+        data = self.tokens('alpha_admin')
+        response = APIClient().post('/api/token/refresh/', {'refresh': data['refresh']}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIn('refresh', response.data)
+
+    def test_logout_blacklists_the_refresh_token(self):
+        data = self.tokens('alpha_admin')
+        self.assertEqual(APIClient().post('/api/logout/', {'refresh': data['refresh']}, format='json').status_code, 204)
+        self.assertEqual(APIClient().post('/api/token/refresh/', {'refresh': data['refresh']}, format='json').status_code, 401)
+
+    def test_refresh_refused_for_suspended_store(self):
+        data = self.tokens('alpha_admin')
+        Store.objects.filter(pk=self.a['store'].pk).update(is_active=False)
+        self.assertEqual(APIClient().post('/api/token/refresh/', {'refresh': data['refresh']}, format='json').status_code, 401)
+
+    def test_role_change_ends_sessions(self):
+        response = self.client.patch(f"/api/staff/{self.a['cashier'].pk}/update/", {'is_active': False}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNotNone(Staff.objects.get(pk=self.a['cashier'].pk).tokens_valid_after)
+
+    # ── Login lockout ──
+    def test_account_locks_after_repeated_failures(self):
+        from .security import LOCKOUT_FAILURES, record_failed_login
+        for _ in range(LOCKOUT_FAILURES):
+            record_failed_login('alpha_admin')
+        response = APIClient().post('/api/token/', {'username': 'ALPHA_admin', 'password': 'pw12345'}, format='json')
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('Too many wrong passwords', str(response.data))
+        # Other accounts are unaffected
+        self.tokens('bravo_admin')
+
+    def test_failed_logins_are_counted_and_success_clears_them(self):
+        from django.contrib.auth import authenticate
+        from .security import is_locked_out, LOCKOUT_FAILURES
+        for _ in range(LOCKOUT_FAILURES - 1):
+            self.assertIsNone(authenticate(None, username='alpha_admin', password='wrong'))
+        self.assertFalse(is_locked_out('alpha_admin'))
+        self.assertIsNotNone(authenticate(None, username='alpha_admin', password='pw12345'))
+        self.assertIsNone(authenticate(None, username='alpha_admin', password='wrong'))
+        self.assertFalse(is_locked_out('alpha_admin'))
+
+    # ── Password rules ──
+    def test_common_passwords_refused(self):
+        response = self.client.post('/api/register-staff/', {'username': 'weak1', 'password': 'password',
+                                                             'confirm_password': 'password', 'is_cashier': True}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Staff.objects.filter(username='weak1').exists())
+
+    def test_managers_need_eight_characters(self):
+        response = self.client.post('/api/register-staff/', {'username': 'mgr1', 'password': 'Kq7#zp',
+                                                             'confirm_password': 'Kq7#zp', 'is_manager': True}, format='json')
+        self.assertEqual(response.status_code, 400)
+        response = self.client.post('/api/register-staff/', {'username': 'mgr1', 'password': 'Kq7#zp-Lagos',
+                                                             'confirm_password': 'Kq7#zp-Lagos', 'is_manager': True}, format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_owner_password_change_needs_eight_characters(self):
+        response = self.client.post('/api/me/password/', {'current_password': 'pw12345', 'new_password': 'Kq7#zp'}, format='json')
+        self.assertEqual(response.status_code, 400)
+
+    # ── Offline sales ──
+    def test_very_old_offline_sale_is_held_for_review(self):
+        self.client.force_authenticate(self.a['cashier'])
+        old = (timezone.now() - timedelta(days=30)).isoformat()
+        payload = {'client_ref': 'old-1', 'sold_at': old, 'total_amount': 500, 'paid_amount': 500, 'change_given': 0,
+                   'items': [{'product_id': self.a['product'].pk, 'quantity': 1, 'price_at_sale': 500}]}
+        response = self.client.post('/api/sales/', payload, format='json')
+        self.assertEqual(response.status_code, 202, response.content)
+        self.assertIn('more than 7 days ago', RefusedSale.objects.get(client_ref='old-1').reason)
+
+    def test_too_many_lines_refused(self):
+        line = {'product_id': self.a['product'].pk, 'quantity': 1, 'price_at_sale': 500}
+        payload = {'total_amount': 501 * 500, 'paid_amount': 501 * 500, 'change_given': 0, 'items': [line] * 501}
+        self.assertEqual(self.client.post('/api/sales/', payload, format='json').status_code, 400)
+
+    # ── Excel upload ──
+    def post_file(self, content, name='p.xlsx'):
+        file = SimpleUploadedFile(name, content)
+        return self.client.post('/api/products/bulk-upload/', {'file': file}, format='multipart')
+
+    def sheet(self, *rows):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(['name', 'category_name', 'price', 'cost_price', 'stock', 'barcode'])
+        for row in rows:
+            ws.append(row)
+        buffer = BytesIO()
+        wb.save(buffer)
+        return buffer.getvalue()
+
+    def test_zip_bomb_refused(self):
+        import zipfile
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as z:
+            z.writestr('xl/workbook.xml', '<workbook/>')
+            z.writestr('xl/worksheets/sheet1.xml', '0' * (60 * 1024 * 1024))
+        self.assertLess(len(buffer.getvalue()), 1024 * 1024)
+        response = self.post_file(buffer.getvalue())
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('expands', response.data['error'])
+
+    def test_not_a_real_xlsx_refused(self):
+        self.assertEqual(self.post_file(b'not a zip at all').status_code, 400)
+        self.assertEqual(self.post_file(self.sheet(), name='p.xls').status_code, 400)
+        self.assertEqual(self.post_file(self.sheet(), name='p.xlsm').status_code, 400)
+
+    def test_macro_workbook_refused(self):
+        import zipfile
+        buffer = BytesIO()
+        with zipfile.ZipFile(BytesIO(self.sheet(['A', '', 500, 300, 1, '9']))) as src, \
+                zipfile.ZipFile(buffer, 'w') as out:
+            for item in src.infolist():
+                out.writestr(item, src.read(item))
+            out.writestr('xl/vbaProject.bin', b'macro')
+        response = self.post_file(buffer.getvalue())
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('macros', response.data['error'])
+
+    def test_bad_cells_give_row_errors_not_crashes(self):
+        response = self.post_file(self.sheet(
+            ['x' * 300, '', 500, 300, 1, 'b1'],
+            ['Ok', '', 'abc', 300, 1, 'b2'],
+            ['Half', '', 500, 300, 1.5, 'b3'],
+            ['Dup', '', 500, 300, 1, 'b4'],
+            ['Dup2', '', 500, 300, 1, 'b4'],
+        ))
+        self.assertEqual(response.status_code, 400)
+        errors = {e['row']: e['error'] for e in response.data['errors']}
+        self.assertIn('too long', errors[2])
+        self.assertIn('must be a number', errors[3])
+        self.assertIn('whole number', errors[4])
+        self.assertIn('also used on row', errors[6])
+        self.assertFalse(Product.objects.filter(barcode__in=['b1', 'b2', 'b3', 'b4']).exists())
+
+    def test_numeric_barcode_cell_keeps_its_digits(self):
+        response = self.post_file(self.sheet(['Numeric', '', 500, 300, 1, 6151234567890]))
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(Product.objects.filter(store=self.a['store'], barcode='6151234567890').exists())
+
+    # ── Downloads can't carry formulas ──
+    def test_customer_export_neutralises_formulas(self):
+        Customer.objects.create(store=self.a['store'], name='=HYPERLINK("http://evil","Click")', phone='08099999999')
+        text = self.client.get('/api/customers/export/').content.decode()
+        self.assertIn("'=HYPERLINK", text)
+        self.assertNotIn(',=HYPERLINK', text)
+
+    def test_count_sheet_keeps_formula_names_as_text(self):
+        Product.objects.filter(pk=self.a['product'].pk).update(name='=cmd|calc')
+        response = self.client.get('/api/products/count-sheet/')
+        self.assertEqual(response.status_code, 200)
+        ws = openpyxl.load_workbook(BytesIO(response.content)).active
+        cell = next(c for row in ws.iter_rows() for c in row if c.value == '=cmd|calc')
+        self.assertEqual(cell.data_type, 's')
+
+    def test_items_csv_neutralises_formulas(self):
+        Product.objects.filter(pk=self.a['product'].pk).update(name='@SUM(A1)')
+        today = timezone.localdate().isoformat()
+        response = self.client.get(f'/api/analytics/items.csv?start_date=2020-01-01&end_date={today}')
+        if response.status_code == 400:   # range limit: ask for this year only
+            response = self.client.get(f'/api/analytics/items.csv?start_date={today}&end_date={today}')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertNotIn(',@SUM', response.content.decode())

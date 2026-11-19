@@ -50,10 +50,10 @@ function Login() {
     setLoading(true);
     setError("");
     const loggedIn = await loginUser(username, password);
-    if (loggedIn) {
+    if (loggedIn && !("error" in loggedIn)) {
       navigate(loggedIn.store_id ? "/dashboard" : "/platform");
     } else {
-      setError("Invalid username or password. Please try again.");
+      setError(loggedIn?.error || "Invalid username or password. Please try again.");
     }
     setLoading(false);
   };

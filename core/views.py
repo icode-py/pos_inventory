@@ -33,8 +33,11 @@ from .serializers import (
     AuditLogSerializer,
     StoreSettingsSerializer,
 )
-from rest_framework_simplejwt.views import TokenObtainPairView
-from .serializers import CustomTokenObtainPairSerializer, bulk_pricing_error
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
+from .serializers import CustomTokenObtainPairSerializer, CustomTokenRefreshSerializer, bulk_pricing_error
+from .security import password_problem, safe_row
 from django.db.models.functions import TruncDate
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -58,6 +61,27 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     throttle_classes = [LoginRateThrottle]
 
 
+class RefreshRateThrottle(AnonRateThrottle):
+    scope = 'refresh'
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    serializer_class = CustomTokenRefreshSerializer
+    throttle_classes = [RefreshRateThrottle]
+
+
+@api_view(['POST'])
+@permission_classes([])
+@throttle_classes([RefreshRateThrottle])
+def logout_view(request):
+    """Ends this device's session for good: its refresh token can't be used again."""
+    try:
+        RefreshToken(str(request.data.get('refresh', ''))).blacklist()
+    except (TokenError, AttributeError):
+        pass   # already expired or invalid: nothing to end
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class StoreScopedMixin:
     """Limits a viewset to the logged-in user's store and stamps new records with it."""
 
@@ -76,20 +100,27 @@ def error_text(detail):
     return str(detail)
 
 
+def manages_store(user):
+    return bool(user.is_manager or user.is_admin or user.is_superuser)
+
+
 class SaleTransactionViewSet(StoreScopedMixin, viewsets.ModelViewSet):
     queryset = SaleTransaction.objects.all().order_by('-created_at')
     serializer_class = SaleTransactionSerializer
     permission_classes = [IsCashierOrManager]
     pagination_class = None
+    # A recorded sale is never edited or deleted through the API, by anyone: that is how
+    # takings disappear. Mistakes are corrected with a new, recorded entry.
+    http_method_names = ['get', 'post', 'head', 'options']
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related('cashier', 'customer').prefetch_related(
             'items__product__category', 'items__product__bulk_discounts')
         user = self.request.user
+        # Till staff see their own sales; the store's takings are for managers and owners
+        if not manages_store(user):
+            queryset = queryset.filter(cashier=user)
         if self.action == 'list':
-            # Till staff see their own sales; the store's takings are for managers and owners
-            if not (user.is_manager or user.is_admin or user.is_superuser):
-                queryset = queryset.filter(cashier=user)
             if self.request.query_params.get('today') in ('1', 'true'):
                 queryset = queryset.filter(created_at__date=timezone.localdate())
             limit = self.request.query_params.get('limit')
@@ -158,6 +189,12 @@ def register_staff(request):
         limit_error = _cashier_limit_error(settings_obj)
         if limit_error:
             return limit_error
+    problem = password_problem(
+        request.data.get('password'),
+        Staff(username=str(request.data.get('username') or ''), first_name=str(request.data.get('first_name') or '')),
+        manages_store=wants_manager)
+    if problem:
+        return Response({'password': [problem]}, status=status.HTTP_400_BAD_REQUEST)
     try:
         serializer = StaffSerializer(data=request.data)
         if serializer.is_valid():
@@ -187,6 +224,9 @@ def register_staff(request):
         return Response({'error': 'Could not create staff account.'}, status=status.HTTP_400_BAD_REQUEST)
 
 
+SALES_REPORT_LIMIT = 1000
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsCashierOrManager])
 @throttle_classes([SustainedRateThrottle])
@@ -197,23 +237,23 @@ def sales_report(request):
     product_id = request.GET.get("product_id")
 
     # Validate date parameters
-    if start_date:
+    for label, value in (("start_date", start_date), ("end_date", end_date)):
         try:
-            parse_date(start_date)
+            if value and parse_date(value) is None:
+                raise ValueError
         except ValueError:
-            return Response({"error": "Invalid start_date format"}, status=status.HTTP_400_BAD_REQUEST)
-
-    if end_date:
-        try:
-            parse_date(end_date)
-        except ValueError:
-            return Response({"error": "Invalid end_date format"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": f"Invalid {label} format"}, status=status.HTTP_400_BAD_REQUEST)
 
     sales = SaleTransaction.objects.filter(store=current_store(request))
 
-    # If no cashier_id specified and user is cashier, show only their sales
-    if not cashier_id and (request.user.is_cashier and not request.user.is_manager and not request.user.is_admin):
+    # Till staff only ever see their own sales, whatever they ask for
+    if not manages_store(request.user):
         sales = sales.filter(cashier=request.user)
+        cashier_id = None
+    if cashier_id and not str(cashier_id).isdigit():
+        return Response({"error": "Invalid cashier_id"}, status=status.HTTP_400_BAD_REQUEST)
+    if product_id and not str(product_id).isdigit():
+        return Response({"error": "Invalid product_id"}, status=status.HTTP_400_BAD_REQUEST)
 
     if start_date:
         sales = sales.filter(created_at__date__gte=parse_date(start_date))
@@ -225,7 +265,10 @@ def sales_report(request):
     if product_id:
         sales = sales.filter(items__product__id=product_id).distinct()
 
-    sales_data = SaleTransactionSerializer(sales, many=True).data
+    sales_data = SaleTransactionSerializer(
+        sales.select_related('cashier', 'customer').prefetch_related('items__product')
+        .order_by('-created_at')[:SALES_REPORT_LIMIT],
+        many=True).data
 
     # Daily Totals
     daily_summary = (
@@ -371,9 +414,9 @@ class CustomerViewSet(AuditMixin, viewsets.ModelViewSet):
         writer = csv.writer(response)
         writer.writerow(['name', 'phone', 'email', 'points', 'total_spent', 'visits', 'last_visit', 'customer_since'])
         for c in self.get_queryset():
-            writer.writerow([c.name, c.phone, c.email, c.loyalty_points, c.total_spent, c.total_visits,
-                             timezone.localtime(c.last_visit).date() if c.last_visit else '',
-                             timezone.localtime(c.created_at).date()])
+            writer.writerow(safe_row([c.name, c.phone, c.email, c.loyalty_points, c.total_spent, c.total_visits,
+                                      timezone.localtime(c.last_visit).date() if c.last_visit else '',
+                                      timezone.localtime(c.created_at).date()]))
         return response
 
     def get_queryset(self):
@@ -400,13 +443,6 @@ class CustomerTransactionViewSet(viewsets.ReadOnlyModelViewSet):
         if customer_id:
             return CustomerTransaction.objects.filter(customer_id=customer_id, customer__store=current_store(self.request)).select_related('sale', 'customer').order_by('-created_at')
         return CustomerTransaction.objects.none()
-
-
-class LoyaltySettingsViewSet(StoreScopedMixin, viewsets.ModelViewSet):
-    queryset = LoyaltySettings.objects.all()
-    serializer_class = LoyaltySettingsSerializer
-    permission_classes = [IsAuthenticated, IsManagerOrAdmin, make_tier_permission('customer_loyalty')]
-    pagination_class = None
 
 
 class BulkDiscountViewSet(StoreScopedMixin, viewsets.ModelViewSet):
@@ -699,6 +735,72 @@ def download_product_template(request):
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 MAX_UPLOAD_ROWS = 1000
+MAX_SHEET_ROWS = MAX_UPLOAD_ROWS + 200    # room for blank rows between products
+MAX_UNZIPPED_BYTES = 50 * 1024 * 1024     # what the file may expand to once unzipped
+MAX_ZIP_MEMBERS = 200
+
+
+def xlsx_problem(file):
+    """Checks an .xlsx (a zip of XML files) before opening it.
+
+    A tiny file can expand to gigabytes ("zip bomb") and freeze the server, and an
+    .xlsm can carry macros. Both are refused here, before openpyxl reads anything.
+    """
+    import zipfile
+    try:
+        file.seek(0)
+        with zipfile.ZipFile(file) as archive:
+            members = archive.infolist()
+            if len(members) > MAX_ZIP_MEMBERS:
+                return 'This file has too many parts to be a product sheet.'
+            names = {m.filename.lower() for m in members}
+            if 'xl/workbook.xml' not in names:
+                return 'Could not read Excel file. Make sure it is a valid .xlsx file.'
+            if any(n.endswith('vbaproject.bin') for n in names):
+                return 'Files with macros are not accepted. Save it as a plain Excel Workbook (.xlsx).'
+            total = 0
+            for m in members:
+                total += m.file_size
+                # Normal sheets compress about 5-20x; hundreds of times means a bomb
+                if total > MAX_UNZIPPED_BYTES or (m.compress_size and m.file_size / m.compress_size > 200 and m.file_size > 1_000_000):
+                    return 'This file expands to far more data than a product sheet. Please upload the template.'
+    except zipfile.BadZipFile:
+        return 'Could not read Excel file. Make sure it is a valid .xlsx file.'
+    finally:
+        file.seek(0)
+    return None
+
+
+def clean_text(value):
+    """A cell as one line of text: no control characters, no surrounding spaces."""
+    if value is None:
+        return ''
+    text = str(value)
+    if isinstance(value, float) and value.is_integer():
+        text = str(int(value))   # barcodes typed as numbers come back as 6.2e12 floats
+    return ''.join(ch for ch in text if ch >= ' ' or ch == '\t').replace('\t', ' ').strip()
+
+
+def sheet_number(value, column):
+    import math
+    if value is None or str(value).strip() == '':
+        return 0.0
+    try:
+        number = float(str(value).replace(',', '').strip()) if isinstance(value, str) else float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'{column} must be a number')
+    if math.isnan(number) or math.isinf(number):
+        raise ValueError(f'{column} must be a number')
+    return number
+
+
+def sheet_whole(value, column, default=0):
+    if value is None or str(value).strip() == '':
+        return default
+    number = sheet_number(value, column)
+    if not number.is_integer():
+        raise ValueError(f'{column} must be a whole number')
+    return int(number)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsManagerOrAdmin])
@@ -710,39 +812,54 @@ def bulk_upload_products(request):
     if not file:
         return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not file.name.endswith(('.xlsx', '.xls')):
-        return Response({'error': 'File must be an Excel file (.xlsx or .xls)'}, status=status.HTTP_400_BAD_REQUEST)
+    if not str(file.name).lower().endswith('.xlsx'):
+        return Response({'error': 'File must be an Excel .xlsx file. In Excel use File → Save As → Excel Workbook (.xlsx).'},
+                        status=status.HTTP_400_BAD_REQUEST)
 
-    # Fix 2: reject oversized files before loading into memory
+    # Reject oversized files before loading into memory
     if file.size > MAX_UPLOAD_BYTES:
         return Response(
-            {'error': f'File too large. Maximum allowed size is 5 MB.'},
+            {'error': 'File too large. Maximum allowed size is 5 MB.'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    try:
-        wb = openpyxl.load_workbook(file, data_only=True, read_only=True)
-    except Exception:
-        return Response({'error': 'Could not read Excel file. Make sure it is a valid .xlsx file.'}, status=status.HTTP_400_BAD_REQUEST)
+    problem = xlsx_problem(file)
+    if problem:
+        return Response({'error': problem}, status=status.HTTP_400_BAD_REQUEST)
 
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    wb.close()
+    try:
+        file.seek(0)
+        wb = openpyxl.load_workbook(file, data_only=True, read_only=True)
+        ws = wb.active
+        # Read lazily and stop early: a sheet claiming a million rows is never loaded whole
+        rows = []
+        for row in ws.iter_rows(values_only=True, max_col=len(TEMPLATE_HEADERS) + 10):
+            rows.append(row)
+            if len(rows) > MAX_SHEET_ROWS:
+                break
+        wb.close()
+    except Exception:
+        logger.warning('bulk upload: unreadable workbook from %s', request.user.username)
+        return Response({'error': 'Could not read Excel file. Make sure it is a valid .xlsx file.'}, status=status.HTTP_400_BAD_REQUEST)
+    if len(rows) > MAX_SHEET_ROWS:
+        return Response({'error': f'Too many rows. Maximum allowed is {MAX_UPLOAD_ROWS} products per upload.'},
+                        status=status.HTTP_400_BAD_REQUEST)
 
     if len(rows) < 2:
         return Response({'error': 'File is empty or only has a header row'}, status=status.HTTP_400_BAD_REQUEST)
 
-    header_row = [str(h).strip().lower() if h else '' for h in rows[0]]
-    required = {'name', 'price', 'cost_price', 'stock', 'barcode'}
-    if not required.issubset(set(header_row)):
+    header_row = [str(h).strip().lower()[:40] if h else '' for h in rows[0]]
+    required = ['name', 'price', 'cost_price', 'stock', 'barcode']
+    missing = [h for h in required if h not in header_row]
+    if missing:
         return Response({
-            'error': f'Missing required columns. Expected: {", ".join(required)}. Got: {", ".join(h for h in header_row if h)}'
+            'error': f'Missing required columns: {", ".join(missing)}. Download the template to see the expected columns.'
         }, status=status.HTTP_400_BAD_REQUEST)
 
     # Fix 3: skip header only — any row where name is blank is silently ignored,
     # no fragile hints-row detection needed
     data_rows = [(i + 2, row) for i, row in enumerate(rows[1:])
-                 if str(row[header_row.index('name')] if 'name' in header_row else '').strip()]
+                 if clean_text(row[header_row.index('name')] if header_row.index('name') < len(row) else '')]
 
     # Fix 2: enforce row cap after stripping blanks
     if len(data_rows) > MAX_UPLOAD_ROWS:
@@ -761,20 +878,35 @@ def bulk_upload_products(request):
 
     # Fix 1: validate everything first, then write atomically
     validated = []
+    seen_barcodes = {}
     for row_num, row in data_rows:
-        name = str(col(row, 'name') or '').strip()
+        name = clean_text(col(row, 'name'))
         try:
-            price = float(col(row, 'price') or 0)
-            cost_price = float(col(row, 'cost_price') or 0)
-            stock = int(float(col(row, 'stock') or 0))
-            barcode = str(col(row, 'barcode') or '').strip()
-            category_name = str(col(row, 'category_name') or '').strip()
-            unit_of_measure = str(col(row, 'unit_of_measure') or 'units').strip()
-            is_bulk_raw = str(col(row, 'is_bulk_product') or 'false').strip().lower()
+            price = sheet_number(col(row, 'price'), 'price')
+            cost_price = sheet_number(col(row, 'cost_price'), 'cost_price')
+            stock = sheet_whole(col(row, 'stock'), 'stock')
+            barcode = clean_text(col(row, 'barcode'))
+            category_name = clean_text(col(row, 'category_name'))
+            unit_of_measure = clean_text(col(row, 'unit_of_measure')) or 'units'
+            is_bulk_raw = clean_text(col(row, 'is_bulk_product')).lower() or 'false'
             is_bulk = is_bulk_raw in ('true', '1', 'yes')
-            bulk_quantity = int(float(col(row, 'bulk_quantity') or 1))
+            bulk_quantity = sheet_whole(col(row, 'bulk_quantity'), 'bulk_quantity', default=1)
             bulk_price_raw = col(row, 'bulk_price')
-            bulk_price = float(bulk_price_raw) if bulk_price_raw not in (None, '', 'none') else None
+            bulk_price = sheet_number(bulk_price_raw, 'bulk_price') if str(bulk_price_raw or '').strip().lower() not in ('', 'none') else None
+
+            for label, value, limit in (('Name', name, 200), ('Barcode', barcode, 100),
+                                        ('Category', category_name, 100), ('Unit of measure', unit_of_measure, 20)):
+                if len(value) > limit:
+                    raise ValueError(f'{label} is too long (at most {limit} characters)')
+            if price > 100_000_000 or cost_price > 100_000_000 or (bulk_price or 0) > 100_000_000:
+                raise ValueError('Price is too high')
+            if not 0 <= stock <= 10_000_000:
+                raise ValueError('Stock must be between 0 and 10,000,000')
+            if not 1 <= bulk_quantity <= 100_000:
+                raise ValueError('bulk_quantity must be between 1 and 100,000')
+            if barcode and barcode in seen_barcodes:
+                raise ValueError(f'Barcode {barcode} is also used on row {seen_barcodes[barcode]}')
+            seen_barcodes[barcode] = row_num
 
             if price <= 0:
                 errors.append({'row': row_num, 'name': name, 'error': 'Price must be positive'})
@@ -796,8 +928,10 @@ def bulk_upload_products(request):
                 'stock': stock, 'unit_of_measure': unit_of_measure,
                 'is_bulk': is_bulk, 'bulk_quantity': bulk_quantity, 'bulk_price': bulk_price,
             })
-        except Exception as e:
-            errors.append({'row': row_num, 'name': name, 'error': str(e)})
+        except ValueError as e:
+            errors.append({'row': row_num, 'name': name[:60], 'error': str(e)})
+        except Exception:
+            errors.append({'row': row_num, 'name': name[:60], 'error': 'This row could not be read'})
 
     # If any row failed validation, return errors without touching the database
     if errors:
@@ -998,6 +1132,8 @@ def update_staff(request, pk):
         if limit_error:
             return limit_error
     before = {'role': staff.get_role_display(), 'active': staff.is_active, 'name': staff.first_name}
+    if (staff.is_manager, staff.is_cashier, staff.is_active) != (is_manager, is_cashier, is_active):
+        staff.tokens_valid_after = timezone.now()
     staff.is_manager, staff.is_cashier, staff.is_active = is_manager, is_cashier, is_active
     if 'first_name' in request.data:
         staff.first_name = str(request.data.get('first_name') or '').strip()[:150]
@@ -1019,9 +1155,10 @@ def reset_staff_password(request, pk):
     if error:
         return error
     new_password = str(request.data.get('new_password', ''))
-    if len(new_password) < 6:
-        return Response({'error': 'Password must be at least 6 characters'}, status=400)
-    staff.set_password(new_password)
+    problem = password_problem(new_password, staff)
+    if problem:
+        return Response({'error': problem}, status=400)
+    staff.set_password(new_password)   # also ends their sessions on every device
     staff.save()
     AuditLog.objects.create(
         store=current_store(request), action='UPDATE', model_name='Staff',
@@ -1062,16 +1199,20 @@ def change_my_password(request):
     if not user.check_password(str(request.data.get('current_password', ''))):
         return Response({'error': 'Your current password is not correct'}, status=400)
     new_password = str(request.data.get('new_password', ''))
-    if len(new_password) < 6:
-        return Response({'error': 'The new password must be at least 6 characters'}, status=400)
     if new_password == request.data.get('current_password'):
         return Response({'error': 'Choose a password different from the current one'}, status=400)
-    user.set_password(new_password)
+    problem = password_problem(new_password, user)
+    if problem:
+        return Response({'error': problem}, status=400)
+    user.set_password(new_password)   # ends every other session, e.g. a till someone else is logged in on
     user.save()
     if user.store_id:
         AuditLog.objects.create(store=user.store, action='UPDATE', model_name='Staff', object_id=str(user.pk),
                                 object_repr=user.username, changed_by=user, changes={'action': 'own_password_changed'})
-    return Response({'message': 'Password changed'})
+    # A fresh login for this device, so changing your password doesn't log you out here
+    refresh = CustomTokenObtainPairSerializer.get_token(user)
+    return Response({'message': 'Password changed',
+                     'tokens': {'refresh': str(refresh), 'access': str(refresh.access_token)}})
 
 
 # ─── Store Settings ───────────────────────────────────────────────────────────

@@ -40,11 +40,21 @@ const AuthProvider = ({ children }) => {
       }
     } catch (err) {
       console.error("Login failed:", err);
-      return false;
+      const detail = err.response?.data?.detail;
+      // The server says when an account is locked after too many wrong passwords
+      if (err.response?.status === 429) return { error: "Too many login attempts from this device. Wait a minute and try again." };
+      return { error: /too many/i.test(detail || "") ? detail : null };
     }
   };
 
   const logoutUser = () => {
+    // End the session on the server too, so the saved login can't be reused from this device
+    try {
+      const saved = JSON.parse(localStorage.getItem("authTokens"));
+      if (saved?.refresh && navigator.onLine) axios.post(`${API_URL}/logout/`, { refresh: saved.refresh }).catch(() => {});
+    } catch {
+      // unreadable tokens: nothing to end
+    }
     setAuthTokens(null);
     setUser(null);
     localStorage.removeItem("authTokens");
@@ -89,11 +99,19 @@ const AuthProvider = ({ children }) => {
     }
   };
 
+  // After a password change the server ends old sessions and hands this device new tokens
+  const replaceTokens = (tokens) => {
+    localStorage.setItem("authTokens", JSON.stringify(tokens));
+    setAuthTokens(tokens);
+    setUser(jwtDecode(tokens.access));
+  };
+
   const contextData = {
     user,
     authTokens,
     loginUser,
     logoutUser,
+    replaceTokens,
   };
 
   return <AuthContext.Provider value={contextData}>{children}</AuthContext.Provider>;

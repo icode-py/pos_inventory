@@ -5,14 +5,19 @@ from rest_framework.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+from rest_framework.exceptions import AuthenticationFailed
+from .security import LOCKED_MESSAGE, is_locked_out
 from rest_framework_simplejwt.views import TokenObtainPairView
 import decimal
+from datetime import timedelta
 from decimal import Decimal
 import re
 import logging
 
-from .authentication import check_store_access
+from .authentication import check_store_access, check_token_still_valid
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +106,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
+        if is_locked_out(attrs.get(self.username_field)):
+            raise AuthenticationFailed(LOCKED_MESSAGE, code='locked_out')
         data = super().validate(attrs)
         user = self.user
         check_store_access(user)
@@ -108,6 +115,22 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
              or self.context['request'].META.get('REMOTE_ADDR', 'unknown')
         logger.info('Login: user=%s ip=%s', user.username, ip)
         return data
+
+
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    """The normal refresh, also refusing sessions ended by a password change, and suspended stores."""
+
+    def validate(self, attrs):
+        try:
+            refresh = RefreshToken(attrs['refresh'])
+        except TokenError as e:
+            raise InvalidToken(e.args[0])
+        user = Staff.objects.filter(pk=refresh.payload.get('user_id')).select_related('store').first()
+        if user is None or not user.is_active:
+            raise AuthenticationFailed('No active account found for the given token.', code='no_active_account')
+        check_token_still_valid(user, refresh.payload)
+        check_store_access(user)
+        return super().validate(attrs)
 
 
 class CategorySerializer(UniqueInStoreMixin, serializers.ModelSerializer):
@@ -294,6 +317,10 @@ class SaleItemSerializer(serializers.ModelSerializer):
         return round(value, 2)
 
 
+MAX_SALE_LINES = 500
+MAX_OFFLINE_AGE = timedelta(days=7)
+
+
 class SaleTransactionSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True)
     cashier = serializers.StringRelatedField(read_only=True)
@@ -364,6 +391,14 @@ class SaleTransactionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'items': 'Sale must contain at least one item'
             })
+        if len(items_data) > MAX_SALE_LINES:
+            raise serializers.ValidationError({'items': f'A sale can have at most {MAX_SALE_LINES} lines'})
+        sold_at = data.get('sold_at')
+        if sold_at and not self.context.get('trust_prices') and sold_at < timezone.now() - MAX_OFFLINE_AGE:
+            # A sale this old is unusual: an owner should look at it before it counts
+            raise serializers.ValidationError({
+                'sold_at': f'This sale is dated {timezone.localtime(sold_at):%d %b %Y}, more than '
+                           f'{MAX_OFFLINE_AGE.days} days ago'})
         self.check_points(data)
         if not self.context.get('trust_prices'):
             self.check_prices(data, items_data)
@@ -564,7 +599,7 @@ class RefusedSaleSerializer(serializers.ModelSerializer):
 
 
 class StaffSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True, min_length=6)
+    password = serializers.CharField(write_only=True, required=True, min_length=6, max_length=128)
     confirm_password = serializers.CharField(write_only=True, required=True)
     role_display = serializers.ReadOnlyField(source='get_role_display')
     class Meta:

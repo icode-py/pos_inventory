@@ -168,6 +168,19 @@ class Staff(AbstractUser):
     is_cashier = models.BooleanField(default=False)
     is_manager = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False)
+    # Login tokens issued before this moment no longer work (set when the password changes)
+    tokens_valid_after = models.DateTimeField(null=True, blank=True, editable=False)
+
+    def set_password(self, raw_password):
+        from django.utils import timezone
+        super().set_password(raw_password)
+        if self.pk:
+            self.tokens_valid_after = timezone.now()
+
+    def end_sessions(self):
+        from django.utils import timezone
+        self.tokens_valid_after = timezone.now()
+        self.save(update_fields=['tokens_valid_after'])
 
     def __str__(self):
         return self.username

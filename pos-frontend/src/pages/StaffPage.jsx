@@ -129,7 +129,10 @@ export default function StaffPage() {
   };
 
   const f = dialog?.form;
-  const passwordOk = f && (dialog.type === "edit" || (f.password.length >= 6 && f.password === f.confirm));
+  // Managers and owners see takings and costs, so the server asks more of their passwords
+  const minPassword = !f ? 6 : dialog.type === "add" ? (f.role === "manager" ? 8 : 6)
+    : (dialog.member?.is_manager || dialog.member?.is_admin ? 8 : 6);
+  const passwordOk = f && (dialog.type === "edit" || (f.password.length >= minPassword && f.password === f.confirm));
   const valid = f && passwordOk && (dialog.type !== "add" || /^[a-zA-Z0-9_]{3,}$/.test(f.username.trim()));
   const limitText = cashierLimit == null ? "unlimited on your plan" : `${stats.cashiers} of ${cashierLimit} on ${TIER_LABELS[store.plan_tier] || store.plan_tier}`;
 
@@ -233,7 +236,7 @@ export default function StaffPage() {
               )}
               {dialog.type !== "edit" && (
                 <>
-                  <TextField label="Password" type="password" value={f.password} onChange={(e) => setForm({ password: e.target.value })} helperText="At least 6 characters" required />
+                  <TextField label="Password" type="password" value={f.password} onChange={(e) => setForm({ password: e.target.value })} helperText={`At least ${minPassword} characters. Avoid simple ones like 123456 or password.`} required />
                   <TextField label="Confirm password" type="password" value={f.confirm} onChange={(e) => setForm({ confirm: e.target.value })} required
                     error={f.confirm !== "" && f.confirm !== f.password} helperText={f.confirm !== "" && f.confirm !== f.password ? "Passwords don't match" : " "} />
                 </>

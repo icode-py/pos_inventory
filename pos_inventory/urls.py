@@ -17,11 +17,8 @@ Including another URLconf
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
-from core.views import CustomTokenObtainPairView
+from django.conf import settings
+from core.views import CustomTokenObtainPairView, CustomTokenRefreshView, logout_view
 
 def health(request):
     return JsonResponse({'status': 'ok'})
@@ -30,8 +27,9 @@ def health(request):
 urlpatterns = [
     path('', health),
     path('health/', health),
-    path('admin/', admin.site.urls),
+    path(settings.ADMIN_URL, admin.site.urls),
     path('api/', include('core.urls')),
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/logout/', logout_view, name='logout'),
 ]

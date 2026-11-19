@@ -290,7 +290,7 @@ function StockPanel() {
       ...stock.out_of_stock_selling.map((x) => ({ product: x.name, category: x.category, in_stock: 0, sells_per_day: x.daily, status: "Out of stock", reorder_qty: x.reorder_qty })),
       ...stock.running_out.map((x) => ({ product: x.name, category: x.category, in_stock: x.stock, sells_per_day: x.daily, status: `About ${daysText(x.days_left)} left`, reorder_qty: x.reorder_qty })),
     ];
-    saveAs(new Blob([Papa.unparse(rows)], { type: "text/csv;charset=utf-8;" }), `restock_list_${ymd(new Date())}.csv`);
+    saveAs(new Blob([Papa.unparse(rows, { escapeFormulae: true })], { type: "text/csv;charset=utf-8;" }), `restock_list_${ymd(new Date())}.csv`);
   };
 
   const Row = ({ title, sub, right, rightSub, rightColor }) => (
@@ -533,7 +533,7 @@ const SalesReport = () => {
   // ── Exports ──────────────────────────────────────────────────────────────
   const fileTag = `${range[0]}_to_${range[1]}`;
   const exportRows = (rows, name) => {
-    saveAs(new Blob([Papa.unparse(rows)], { type: "text/csv;charset=utf-8;" }), `${name}_${fileTag}.csv`);
+    saveAs(new Blob([Papa.unparse(rows, { escapeFormulae: true })], { type: "text/csv;charset=utf-8;" }), `${name}_${fileTag}.csv`);
   };
   const exportDaily = () => exportRows(data.daily.map((d) => ({
     date: d.date, sales_count: d.transactions, revenue: d.revenue, ...(canProfit ? { cost: d.cost, profit: d.profit } : {}),

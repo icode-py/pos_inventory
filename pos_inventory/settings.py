@@ -30,7 +30,15 @@ if not SECRET_KEY:
         raise ImproperlyConfigured('SECRET_KEY environment variable must be set in production.')
     SECRET_KEY = 'django-insecure-dev-key-change-in-production'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,.vercel.app,.railway.app,.onrender.com').split(',')
+# Only the backend's own address. Set ALLOWED_HOSTS on Render to override.
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get(
+    'ALLOWED_HOSTS', 'localhost,127.0.0.1,pos-inventory-1-kwfq.onrender.com').split(',') if h.strip()]
+
+# Django admin lives at a private address set on Render (e.g. ADMIN_URL=staff-area-7f3k9/),
+# so the login page isn't where every scanner on the internet looks for it.
+ADMIN_URL = os.environ.get('ADMIN_URL', 'admin/').strip('/') + '/'
+
+AUTHENTICATION_BACKENDS = ['core.security.LockoutModelBackend']
 
 # Application definition
 INSTALLED_APPS = [
@@ -60,13 +68,19 @@ MIDDLEWARE = [
 ]
 
 # Read CORS origins from environment
-CORS_ALLOWED_ORIGINS = os.environ.get(
-    'CORS_ALLOWED_ORIGINS', 
+CORS_ALLOWED_ORIGINS = [o.strip() for o in os.environ.get(
+    'CORS_ALLOWED_ORIGINS',
     'http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000'
-).split(',')
+).split(',') if o.strip()]
 
-CORS_ALLOW_CREDENTIALS = True
-CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
+# The app sends its login token in a header, never in cookies, so browsers needn't send cookies across sites
+CORS_ALLOW_CREDENTIALS = False
+CORS_EXPOSE_HEADERS = ['Content-Type', 'Content-Disposition']
+
+# Request size limits: a sale or settings change is a few KB; Excel uploads have their own 5 MB limit
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 2000
 
 ROOT_URLCONF = 'pos_inventory.urls'
 
@@ -116,6 +130,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 8},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -190,6 +205,7 @@ REST_FRAMEWORK = {
         'anon': '30/minute',
         'user': '300/minute',
         'login': '5/minute',   # max 5 login attempts per minute per IP
+        'refresh': '30/minute',
         'burst': '60/minute',
         'sustained': '500/hour',
     },
@@ -207,7 +223,9 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
     'ALGORITHM': 'HS256',
-    'SIGNING_KEY': SECRET_KEY,
+    # A key of its own, so login tokens can be reset without touching anything else.
+    # Falls back to SECRET_KEY until JWT_SIGNING_KEY is set on Render.
+    'SIGNING_KEY': os.environ.get('JWT_SIGNING_KEY') or SECRET_KEY,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
@@ -237,15 +255,16 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_BROWSER_XSS_FILTER = True
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_AGE = 60 * 60 * 8   # an admin session ends after a working day
+    X_FRAME_OPTIONS = 'DENY'
+    SECURE_REFERRER_POLICY = 'same-origin'
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
 
-    # Security headers
-    CSRF_TRUSTED_ORIGINS = [
-        'https://*.railway.app',
-        'https://*.vercel.app',
-        'https://*.onrender.com',
-    ]
+    # Only the app's own addresses, never every site on vercel.app or onrender.com
+    CSRF_TRUSTED_ORIGINS = [o for o in CORS_ALLOWED_ORIGINS if o.startswith('https://')] + [
+        f'https://{h}' for h in ALLOWED_HOSTS if h and not h.startswith('.') and h not in ('localhost', '127.0.0.1')]

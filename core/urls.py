@@ -7,7 +7,7 @@ from .analytics import store_analytics, analytics_sales, analytics_items_csv, st
 from .views import (
     SaleTransactionViewSet, StaffViewSet, RefusedSaleViewSet,
     sales_report,
-    CustomerViewSet, CustomerTransactionViewSet, LoyaltySettingsViewSet,
+    CustomerViewSet, CustomerTransactionViewSet,
     store_today_sales, user_today_performance, change_my_password,
     BulkDiscountViewSet, register_staff,
     AuditedCategoryViewSet, AuditedProductViewSet, AuditLogViewSet,
@@ -25,7 +25,6 @@ router.register(r'staff', StaffViewSet)
 router.register(r'platform/stores', PlatformStoreViewSet, basename='platform-stores')
 router.register(r'customers', CustomerViewSet, basename='customers')
 router.register(r'customer-transactions', CustomerTransactionViewSet, basename='customer-transactions')
-router.register(r'loyalty-settings', LoyaltySettingsViewSet, basename='loyalty-settings')
 router.register(r'bulk-discounts', BulkDiscountViewSet, basename='bulk-discounts')
 router.register(r'audit-log', AuditLogViewSet, basename='audit-log')
 

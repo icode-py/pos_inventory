@@ -162,6 +162,6 @@ class PlatformStoreViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mix
                             status=status.HTTP_400_BAD_REQUEST)
         password = check_password(serializer.validated_data['password'], staff)
         staff.set_password(password)
-        staff.save(update_fields=['password'])
+        staff.save(update_fields=['password', 'tokens_valid_after'])
         logger.info('Platform: %s reset the password of %s in store %s', request.user.username, staff.username, store.pk)
         return Response({'detail': f'Password changed for {staff.username}.'})
